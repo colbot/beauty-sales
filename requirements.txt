@@ -1,0 +1,23 @@
+qwen-agent[gui,rag,code_interpreter]
+fastapi==0.104.1
+uvicorn==0.23.2
+sqlalchemy==2.0.23
+python-multipart==0.0.6
+matplotlib==3.8.0
+seaborn==0.13.0
+plotly==5.18.0
+pandas==2.1.1
+openpyxl==3.1.2
+python-dotenv==1.0.0
+pydantic==2.4.2
+jinja2==3.1.2
+aiosqlite==0.19.0
+langchain==0.0.314
+langchain-openai==0.0.2.post1
+sqlparse==0.4.4
+bokeh==3.3.0
+altair==5.1.2
+pygwalker==0.3.10
+nbformat==5.9.2
+# MySQL支持
+pymysql==1.1.0
