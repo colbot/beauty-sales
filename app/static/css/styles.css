@@ -1,0 +1,304 @@
+:root {
+    --primary-color: #ff69b4;
+    --primary-dark: #d65a9c;
+    --secondary-color: #9370db;
+    --accent-color: #f0e68c;
+    --text-color: #333;
+    --light-text: #777;
+    --background-color: #fff;
+    --light-gray: #f5f5f5;
+    --border-color: #ddd;
+    --success-color: #4caf50;
+    --warning-color: #ff9800;
+    --error-color: #f44336;
+    --shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    --border-radius: 8px;
+    --spacing-xs: 4px;
+    --spacing-sm: 8px;
+    --spacing-md: 16px;
+    --spacing-lg: 24px;
+    --spacing-xl: 32px;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: var(--text-color);
+    background-color: var(--light-gray);
+    line-height: 1.6;
+}
+
+.app-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: var(--spacing-md);
+}
+
+/* 标题 */
+h1, h2, h3, h4 {
+    margin-bottom: var(--spacing-md);
+    color: var(--primary-dark);
+}
+
+/* 按钮样式 */
+.btn-primary {
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.btn-primary:hover {
+    background-color: var(--primary-dark);
+}
+
+.btn-primary:disabled {
+    background-color: var(--light-text);
+    cursor: not-allowed;
+}
+
+/* 头部 */
+.app-header {
+    text-align: center;
+    margin-bottom: var(--spacing-xl);
+    padding: var(--spacing-lg) 0;
+    background-color: var(--background-color);
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow);
+}
+
+.app-header h1 {
+    color: var(--primary-color);
+    margin-bottom: var(--spacing-sm);
+}
+
+.app-header p {
+    color: var(--light-text);
+}
+
+/* 主要内容区域 */
+.app-main {
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    grid-template-rows: auto 1fr;
+    grid-template-areas:
+        "data chat"
+        "data visualization";
+    gap: var(--spacing-lg);
+}
+
+/* 数据部分 */
+.data-section {
+    grid-area: data;
+    background-color: var(--background-color);
+    border-radius: var(--border-radius);
+    padding: var(--spacing-md);
+    box-shadow: var(--shadow);
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-md);
+    padding-bottom: var(--spacing-sm);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.data-upload {
+    margin-bottom: var(--spacing-lg);
+}
+
+.form-group {
+    margin-bottom: var(--spacing-md);
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: var(--spacing-xs);
+    font-weight: 500;
+}
+
+.form-group input, 
+.form-group textarea {
+    width: 100%;
+    padding: var(--spacing-sm);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+}
+
+.data-sources h3 {
+    margin-top: var(--spacing-md);
+}
+
+.source-list {
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+}
+
+.source-item {
+    padding: var(--spacing-sm);
+    border-bottom: 1px solid var(--border-color);
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.source-item:hover {
+    background-color: var(--light-gray);
+}
+
+.source-item.active {
+    background-color: var(--accent-color);
+}
+
+/* 聊天部分 */
+.chat-section {
+    grid-area: chat;
+    background-color: var(--background-color);
+    border-radius: var(--border-radius);
+    padding: var(--spacing-md);
+    box-shadow: var(--shadow);
+}
+
+.chat-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.chat-messages {
+    flex-grow: 1;
+    overflow-y: auto;
+    padding: var(--spacing-sm);
+    background-color: var(--light-gray);
+    border-radius: var(--border-radius);
+    margin-bottom: var(--spacing-md);
+    min-height: 300px;
+    max-height: 400px;
+}
+
+.message {
+    margin-bottom: var(--spacing-md);
+    display: flex;
+    flex-direction: column;
+}
+
+.message.user {
+    align-items: flex-end;
+}
+
+.message.assistant, .message.system {
+    align-items: flex-start;
+}
+
+.message-content {
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-radius: var(--border-radius);
+    max-width: 80%;
+}
+
+.message.user .message-content {
+    background-color: var(--primary-color);
+    color: white;
+}
+
+.message.assistant .message-content {
+    background-color: var(--secondary-color);
+    color: white;
+}
+
+.message.system .message-content {
+    background-color: var(--light-gray);
+    border: 1px solid var(--border-color);
+}
+
+.chat-input {
+    display: flex;
+    margin-bottom: var(--spacing-md);
+}
+
+.chat-input textarea {
+    flex-grow: 1;
+    padding: var(--spacing-sm);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius) 0 0 var(--border-radius);
+    resize: none;
+    height: 60px;
+}
+
+.chat-input button {
+    border-radius: 0 var(--border-radius) var(--border-radius) 0;
+}
+
+.query-suggestions h4 {
+    margin-bottom: var(--spacing-sm);
+}
+
+.suggestion-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+}
+
+.suggestion-pill {
+    background-color: var(--light-gray);
+    border: 1px solid var(--border-color);
+    border-radius: 20px;
+    padding: var(--spacing-xs) var(--spacing-md);
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.suggestion-pill:hover {
+    background-color: var(--accent-color);
+}
+
+/* 可视化部分 */
+.visualization-section {
+    grid-area: visualization;
+    background-color: var(--background-color);
+    border-radius: var(--border-radius);
+    padding: var(--spacing-md);
+    box-shadow: var(--shadow);
+}
+
+.visualization-container {
+    min-height: 400px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.empty-state {
+    text-align: center;
+    color: var(--light-text);
+}
+
+/* 页脚 */
+.app-footer {
+    margin-top: var(--spacing-xl);
+    text-align: center;
+    padding: var(--spacing-md) 0;
+    color: var(--light-text);
+}
+
+/* 响应式布局 */
+@media (max-width: 768px) {
+    .app-main {
+        grid-template-columns: 1fr;
+        grid-template-areas:
+            "data"
+            "chat"
+            "visualization";
+    }
+} 
