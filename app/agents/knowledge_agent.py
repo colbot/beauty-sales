@@ -6,11 +6,6 @@ import os
 import logging
 from typing import List, Dict, Any, Optional
 import json
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.vectorstores import FAISS
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.document_loaders import TextLoader, DirectoryLoader
-from langchain.schema import Document
 from qwen_agent.agents import Assistant
 
 # 配置日志
@@ -18,7 +13,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class KnowledgeAgent:
-    """知识检索Agent类，使用RAG实现知识检索"""
+    """知识检索Agent类，使用Qwen-Agent实现知识检索"""
     
     def __init__(self):
         """初始化知识检索Agent"""
@@ -43,14 +38,11 @@ class KnowledgeAgent:
             description='专精于美妆行业专业知识，能够提供行业见解和分析'
         )
         
-        # 向量数据库
-        self.vector_store = None
-        
         # 初始化知识库
         self.init_knowledge_base()
     
     def init_knowledge_base(self):
-        """初始化美妆行业知识库，加载文档并创建向量索引"""
+        """初始化美妆行业知识库"""
         try:
             # 检查知识库目录是否存在
             if not os.path.exists(self.kb_dir):
@@ -58,29 +50,11 @@ class KnowledgeAgent:
                 logger.warning("知识库目录不存在，已创建空目录")
                 # 创建一个基础美妆行业知识文档
                 self._create_base_knowledge()
-            
-            # 判断是否可以加载现有的向量库
-            faiss_index_path = os.path.join(self.kb_dir, 'faiss_index')
-            if os.path.exists(faiss_index_path):
-                # 加载现有向量库
-                logger.info("加载现有向量库")
-                embeddings = OpenAIEmbeddings(
-                    model="text-embedding-ada-002",
-                    openai_api_key=self.llm_cfg['api_key'],
-                    openai_api_base=self.llm_cfg.get('model_server', None)
-                )
-                self.vector_store = FAISS.load_local(faiss_index_path, embeddings)
-                logger.info("向量库加载成功")
-            else:
-                # 从文件创建向量库
-                logger.info("从文件创建向量库")
-                self._build_vector_store()
-                logger.info("向量库创建成功")
-            
+                
+            logger.info("知识库初始化完成")
+                
         except Exception as e:
             logger.error(f"初始化知识库时发生错误: {e}")
-            # 创建空文档列表作为备用
-            self.documents = []
     
     def _create_base_knowledge(self):
         """创建基础美妆行业知识文档"""
@@ -238,79 +212,6 @@ class KnowledgeAgent:
         
         logger.info("创建基础美妆行业知识文档完成")
     
-    def _build_vector_store(self):
-        """构建向量存储"""
-        try:
-            # 加载文档
-            loader = DirectoryLoader(
-                self.kb_dir,
-                glob="**/*.md",
-                loader_cls=TextLoader,
-                loader_kwargs={'autodetect_encoding': True}
-            )
-            documents = loader.load()
-            logger.info(f"加载了 {len(documents)} 个文档")
-            
-            # 文本分割
-            text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=1000,
-                chunk_overlap=200
-            )
-            texts = text_splitter.split_documents(documents)
-            logger.info(f"文档被分割为 {len(texts)} 个文本块")
-            
-            # 创建嵌入和向量存储
-            embeddings = OpenAIEmbeddings(
-                model="text-embedding-ada-002",
-                openai_api_key=self.llm_cfg['api_key'],
-                openai_api_base=self.llm_cfg.get('model_server', None)
-            )
-            
-            # 创建向量库
-            self.vector_store = FAISS.from_documents(texts, embeddings)
-            
-            # 保存向量库到本地
-            faiss_index_path = os.path.join(self.kb_dir, 'faiss_index')
-            self.vector_store.save_local(faiss_index_path)
-            logger.info(f"向量库已保存到 {faiss_index_path}")
-            
-        except Exception as e:
-            logger.error(f"构建向量存储时发生错误: {e}")
-            raise
-    
-    def retrieve_knowledge(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
-        """从知识库中检索相关信息
-        
-        参数:
-            query: 查询文本
-            top_k: 返回的最相关文档数量
-            
-        返回:
-            检索到的文档列表
-        """
-        try:
-            if not self.vector_store:
-                logger.warning("向量库未初始化，无法执行检索")
-                return []
-            
-            # 执行相似度检索
-            search_results = self.vector_store.similarity_search_with_score(query, k=top_k)
-            
-            # 格式化结果
-            results = []
-            for doc, score in search_results:
-                results.append({
-                    "content": doc.page_content,
-                    "source": doc.metadata.get("source", "未知来源"),
-                    "relevance_score": score
-                })
-            
-            return results
-            
-        except Exception as e:
-            logger.error(f"从知识库检索时发生错误: {e}")
-            return []
-    
     def get_knowledge_response(self, query: str, context: Optional[List[Dict[str, str]]] = None) -> str:
         """结合知识库和LLM回答问题
         
@@ -322,36 +223,42 @@ class KnowledgeAgent:
             回答文本
         """
         try:
-            # 从知识库检索相关信息
-            knowledge_items = self.retrieve_knowledge(query)
-            
-            # 如果没有找到相关知识，直接使用LLM回答
-            if not knowledge_items:
-                logger.info("未检索到相关知识，使用LLM直接回答")
-                return self._generate_direct_response(query, context)
-            
-            # 构建提示
+            # 构建系统提示
             system_prompt = """你是一位美妆行业的专业分析师，擅长利用行业知识回答问题。
 请基于提供的知识内容回答用户问题。如果知识内容不足以完全回答问题，可以使用你的专业知识进行补充，但要明确区分哪些是来自知识库的信息，哪些是你的补充。
 回答应该专业、简洁，并且具有实际操作价值。"""
             
-            # 构建知识内容
-            knowledge_content = "\n\n".join([f"知识{i+1}:\n{item['content']}" for i, item in enumerate(knowledge_items)])
-            
             # 构建消息
             messages = [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"基于以下美妆行业知识回答问题:\n\n{knowledge_content}\n\n用户问题: {query}"}
+                {"role": "user", "content": query}
             ]
             
             # 如果有上下文，添加到消息中
             if context:
                 context_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in context])
-                messages[1]["content"] += f"\n\n对话上下文:\n{context_str}"
+                messages.insert(1, {"role": "system", "content": f"以下是之前的对话上下文:\n{context_str}"})
+            
+            # 准备文件内容
+            content = [{"text": query}]
+            
+            # 添加知识库文件作为参考
+            files = []
+            for root, dirs, filenames in os.walk(self.kb_dir):
+                for filename in filenames:
+                    if filename.endswith('.md') or filename.endswith('.txt'):
+                        file_path = os.path.join(root, filename)
+                        files.append({"file": file_path})
+            
+            if files:
+                content.extend(files)
+            
+            # 构建包含文件的消息
+            file_message = {"role": "user", "content": content}
             
             # 使用LLM生成回答
             response_text = ""
-            for response in self.knowledge_agent.run(messages=messages):
+            for response in self.knowledge_agent.run(messages=[file_message]):
                 if "content" in response:
                     response_text = response["content"]
             
@@ -361,39 +268,6 @@ class KnowledgeAgent:
             logger.error(f"获取知识响应时发生错误: {e}")
             return f"抱歉，在处理您的问题时遇到了错误: {str(e)}"
     
-    def _generate_direct_response(self, query: str, context: Optional[List[Dict[str, str]]] = None) -> str:
-        """直接使用LLM回答问题，不依赖知识库
-        
-        参数:
-            query: 用户问题
-            context: 可选的上下文信息
-            
-        返回:
-            回答文本
-        """
-        system_prompt = """你是一位美妆行业的专业分析师，擅长回答美妆相关问题。
-请根据你的专业知识回答用户问题。回答应该专业、简洁，并且具有实际操作价值。
-如果问题超出了美妆行业范围，请礼貌地告知用户并建议重新提问。"""
-        
-        # 构建消息
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": query}
-        ]
-        
-        # 如果有上下文，添加到消息中
-        if context:
-            context_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in context])
-            messages.insert(1, {"role": "system", "content": f"以下是之前的对话上下文:\n{context_str}"})
-        
-        # 使用LLM生成回答
-        response_text = ""
-        for response in self.knowledge_agent.run(messages=messages):
-            if "content" in response:
-                response_text = response["content"]
-        
-        return response_text
-
     def add_document_to_knowledge_base(self, title: str, content: str) -> bool:
         """添加新文档到知识库
         
@@ -412,9 +286,7 @@ class KnowledgeAgent:
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(content)
             
-            # 重建向量库
-            self._build_vector_store()
-            
+            logger.info(f"文档'{title}'已添加到知识库")
             return True
             
         except Exception as e:
