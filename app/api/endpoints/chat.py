@@ -4,10 +4,12 @@
 import os
 import uuid
 import logging
+import json
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.orm import Session
-from app.agents.chat_agent import ChatAgent
+from app.agents.main_agent import MainAgent
+from app.utils.data_loader import load_data_from_source
 from app.database.init_db import get_db
 from app.models import models
 from pydantic import BaseModel
@@ -33,8 +35,8 @@ class ChatResponse(BaseModel):
     response: str
     visualization_id: Optional[int] = None
 
-# 创建聊天代理
-chat_agent = ChatAgent()
+# 创建主控Agent
+main_agent = MainAgent()
 
 @router.post("/", response_model=ChatResponse)
 async def chat(
@@ -88,16 +90,28 @@ async def chat(
             models.ChatMessage.chat_session_id == chat_session.id
         ).order_by(models.ChatMessage.created_at).all()
         
+        # 将历史消息转换为Agent可用的格式，并更新会话状态
+        conversation_history = [{"role": msg.role, "content": msg.content} for msg in messages]
+        # 更新MainAgent的会话历史
+        main_agent.session_state["conversation_history"] = conversation_history
+        
         # 获取数据源
         data_source = chat_session.data_source
         
-        # 处理聊天
-        chat_result = chat_agent.process_chat(
-            session_id=session_id,
-            message=chat_request.message,
-            history=[{"role": msg.role, "content": msg.content} for msg in messages],
-            data_source_path=data_source.file_path
-        )
+        # 加载数据并初始化必要的Agent
+        if data_source.file_type == "database":
+            # 初始化SQL Agent
+            if not main_agent.initialize_sql_agent(data_source.file_path):
+                raise HTTPException(status_code=500, detail="初始化SQL Agent失败")
+        else:
+            # 加载数据文件
+            data = load_data_from_source(data_source.file_path)
+            if data is not None:
+                main_agent.data_agent.load_data_from_df(data)
+                main_agent.session_state["current_data_path"] = data_source.file_path
+        
+        # 处理聊天请求
+        chat_result = main_agent.process_query(chat_request.message)
         
         # 保存助手回复
         assistant_message = models.ChatMessage(
@@ -113,9 +127,9 @@ async def chat(
         if chat_result.get("visualization"):
             visualization = models.Visualization(
                 chat_session_id=chat_session.id,
-                chart_type=chat_result["visualization"]["type"],
-                chart_data=chat_result["visualization"]["data"],
-                chart_title=chat_result["visualization"]["title"],
+                chart_type=chat_result["visualization"].get("type", "bar"),
+                chart_data=json.dumps(chat_result["visualization"].get("data", {})),
+                chart_title=chat_result["visualization"].get("title", "数据可视化"),
                 chart_description=chat_result["visualization"].get("description", "")
             )
             db.add(visualization)

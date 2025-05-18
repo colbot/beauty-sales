@@ -46,7 +46,7 @@ class VisualizationAgent:
             llm=self.llm_cfg,
             name='数据可视化专家',
             description='专精于美妆行业销售数据可视化，能够生成精美且信息丰富的图表',
-            tools=[self.code_interpreter]
+            function_list=['code_interpreter']
         )
         
         # 支持的图表类型

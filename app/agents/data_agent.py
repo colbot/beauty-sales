@@ -38,7 +38,7 @@ class DataAgent:
             llm=self.llm_cfg,
             name='美妆数据分析专家',
             description='专精于美妆行业销售数据分析，能够提供数据洞察和业务建议',
-            tools=[self.code_interpreter]
+            function_list=['code_interpreter']
         )
         
         # 当前加载的数据
