@@ -109,7 +109,7 @@ class SQLAgent:
             # 获取每个表的结构
             for table_name in metadata.tables.keys():
                 # 跳过系统表
-                if table_name.startswith('information_schema.') or table_name.startswith('performance_schema.'):
+                if table_name.startswith('information_schema.') or table_name.startswith('performance_schema.') or table_name.startswith('mysql.'):
                     continue
                 
                 table = metadata.tables[table_name]
@@ -125,7 +125,7 @@ class SQLAgent:
                     }
                 
                 # 获取表中的数据示例
-                query = f"SELECT * FROM {table_name} LIMIT 5"
+                query = f"SELECT * FROM `{table_name}` LIMIT 5"  # 使用反引号包围表名，MySQL语法
                 sample_data = pd.read_sql_query(query, self.conn)
                 
                 # 保存表信息

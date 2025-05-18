@@ -7,6 +7,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
+from app.database import SQLALCHEMY_DATABASE_URL
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -16,7 +17,7 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 # 获取数据库URL
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///app/database/beauty_sales.db")
+DATABASE_URL = SQLALCHEMY_DATABASE_URL
 
 # 创建数据库引擎
 engine = create_engine(DATABASE_URL)
@@ -43,7 +44,7 @@ def init_database():
             logger.info("数据库连接成功")
             
             # 检查表是否存在
-            result = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))
+            result = conn.execute(text("SHOW TABLES"))
             tables = [row[0] for row in result]
             logger.info(f"发现数据库表: {tables}")
             
