@@ -1,0 +1,16 @@
+Fix mysql issue
+
+# Please enter the commit message for your changes. Lines starting
+# with '#' will be ignored, and an empty message aborts the commit.
+#
+# Date:      Mon May 19 00:02:22 2025 +0800
+#
+# On branch fix_mysql_issue
+# Changes to be committed:
+#	modified:   .env.example
+#	modified:   app/agents/sql_agent.py
+#	modified:   app/database/init_db.py
+#	new file:   app/scripts/start_up.sh
+#	renamed:    "app/script/\350\265\233\351\242\230\344\270\211\357\274\232\346\225\260\346\215\256\350\247\243\346\236\204\345\270\210-\345\273\272\345\272\223\350\204\232\346\234\254.txt" -> "app/scripts/\350\265\233\351\242\230\344\270\211\357\274\232\346\225\260\346\215\256\350\247\243\346\236\204\345\270\210-\345\273\272\345\272\223\350\204\232\346\234\254.txt"
+#	modified:   app/utils/data_loader.py
+#
