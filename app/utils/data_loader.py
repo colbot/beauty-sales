@@ -67,6 +67,8 @@ def load_data_from_source(file_path: str) -> Optional[pd.DataFrame]:
             return df
         
         else:
+            # 原代码可能尝试作为SQLite打开不识别的文件类型
+            # 修改为明确报错
             logger.error(f"不支持的文件类型: {file_extension}")
             return None
             

@@ -51,7 +51,7 @@ def init_database():
     try:
         # 现在导入 app 模块，这样可以确保环境变量已经设置好
         from app.database import Base, engine
-        from app.models import DataSource, ChatSession, ChatMessage, Visualization
+        from app.models.models import DataSource, ChatSession, ChatMessage, Visualization
         
         # 创建所有表
         Base.metadata.create_all(bind=engine)
