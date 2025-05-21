@@ -80,6 +80,29 @@ class DataAgent:
             logger.error(f"加载数据时发生错误: {e}")
             return False
     
+    def load_data_from_df(self, dataframe: pd.DataFrame) -> bool:
+        """直接从DataFrame加载数据
+        
+        参数:
+            dataframe: Pandas DataFrame对象
+            
+        返回:
+            是否成功加载
+        """
+        try:
+            self.current_data = dataframe
+            self.data_source = "直接加载的DataFrame"
+            logger.info(f"成功加载DataFrame数据，共 {len(self.current_data)} 行")
+            
+            # 设置代码解释器的变量
+            self.code_interpreter.set_variable("df", self.current_data)
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"从DataFrame加载数据时发生错误: {e}")
+            return False
+    
     def get_data_summary(self) -> Dict[str, Any]:
         """获取当前数据摘要
         

@@ -45,15 +45,6 @@ ALTER USER 'root'@'localhost' IDENTIFIED BY '$MYSQL_ROOT_PASSWORD';
 FLUSH PRIVILEGES;
 EOF
 
-# 重启 MySQL 服务
-sudo pkill mysqld
-sleep 5
-sudo nohup mysqld --user=mysql > /var/log/mysql-start.log 2>&1 &
-sleep 5
-
-# 检查 MySQL 是否启动成功
-echo "等待 MySQL 启动..."
-sleep 5
 MYSQL_PID=$(pgrep mysqld)
 if [ -z "$MYSQL_PID" ]; then
     echo "MySQL 启动失败！请检查日志：/var/log/mysql-start.log"
