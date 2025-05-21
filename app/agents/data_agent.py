@@ -8,7 +8,6 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Any, Union, Optional
 from qwen_agent.agents import Assistant
-from qwen_agent.tools import CodeInterpreter
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -29,9 +28,6 @@ class DataAgent:
             'model_server': 'dashscope',
             'api_key': api_key,
         }
-        
-        # 创建代码解释器工具
-        self.code_interpreter = CodeInterpreter()
         
         # 创建数据处理Assistant实例
         self.data_agent = Assistant(
@@ -71,9 +67,6 @@ class DataAgent:
             self.data_source = data_path
             logger.info(f"成功加载数据: {data_path}，共 {len(self.current_data)} 行")
             
-            # 设置代码解释器的变量
-            self.code_interpreter.set_variable("df", self.current_data)
-            
             return True
             
         except Exception as e:
@@ -93,9 +86,6 @@ class DataAgent:
             self.current_data = dataframe
             self.data_source = "直接加载的DataFrame"
             logger.info(f"成功加载DataFrame数据，共 {len(self.current_data)} 行")
-            
-            # 设置代码解释器的变量
-            self.code_interpreter.set_variable("df", self.current_data)
             
             return True
             
@@ -375,10 +365,11 @@ class DataAgent:
                     
                     if column and expression:
                         try:
-                            # 使用代码解释器执行表达式
-                            self.code_interpreter.set_variable("df", processed_df)
-                            self.code_interpreter.run(f"df['{column}'] = {expression}")
-                            processed_df = self.code_interpreter.get_variable("df")
+                            # 使用pandas表达式直接创建列，不依赖代码解释器
+                            # 注意：这里使用eval方式可能有安全风险，实际应用中可能需要更安全的方式
+                            processed_df[column] = eval(expression, 
+                                                       {"__builtins__": {}}, 
+                                                       {"df": processed_df, "np": np, "pd": pd})
                             results.append(f"已创建新列 '{column}' 基于表达式 '{expression}'")
                         except Exception as e:
                             results.append(f"创建列 '{column}' 时发生错误: {e}")
@@ -404,7 +395,6 @@ class DataAgent:
             
             # 更新当前数据
             self.current_data = processed_df
-            self.code_interpreter.set_variable("df", processed_df)
             
             return {
                 "success": True,

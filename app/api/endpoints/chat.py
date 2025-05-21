@@ -5,7 +5,7 @@ import os
 import uuid
 import logging
 import json
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.orm import Session
 from app.agents.main_agent import MainAgent

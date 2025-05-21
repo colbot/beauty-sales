@@ -13,7 +13,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from qwen_agent.agents import Assistant
-from qwen_agent.tools import CodeInterpreter
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -38,9 +37,6 @@ class VisualizationAgent:
             'api_key': api_key,
         }
         
-        # 创建代码解释器工具
-        self.code_interpreter = CodeInterpreter()
-        
         # 创建可视化Assistant实例
         self.visualization_agent = Assistant(
             llm=self.llm_cfg,
@@ -48,6 +44,9 @@ class VisualizationAgent:
             description='专精于美妆行业销售数据可视化，能够生成精美且信息丰富的图表',
             function_list=['code_interpreter']
         )
+        
+        # 当前数据
+        self.current_data = None
         
         # 支持的图表类型
         self.supported_chart_types = {
@@ -84,17 +83,12 @@ class VisualizationAgent:
             # 确保数据是DataFrame格式
             if isinstance(data, dict) or isinstance(data, list):
                 df = pd.DataFrame(data)
-            elif isinstance(data, pd.DataFrame):
-                df = data
             else:
-                return {
-                    "success": False,
-                    "error": f"不支持的数据类型: {type(data)}",
-                    "visualization": None
-                }
-            
-            # 设置代码解释器的变量
-            self.code_interpreter.set_variable("df", df)
+                df = data
+
+            # 注意：不直接使用code_interpreter，它会在LLM调用时被正确使用
+            # 本地保存一份数据用于后续操作和生成备用图表
+            self.current_data = df
             
             # 构建系统提示
             system_prompt = """你是一位专业的数据可视化专家，精通美妆销售数据的可视化表达。

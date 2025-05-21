@@ -90,6 +90,7 @@ class MainAgent:
         返回:
             意图分类结果
         """
+        # 构建综合system提示，将所有信息合并到一个system消息中
         system_prompt = """你是一个专业的查询意图分类器，专注于美妆销售数据分析领域。
 你的任务是将用户的查询分类到以下几种意图之一:
 
@@ -110,16 +111,6 @@ class MainAgent:
 
 只返回JSON对象，不要有其他解释。"""
 
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"用户查询: {query}"}
-        ]
-        
-        # 添加会话历史上下文
-        if self.session_state["conversation_history"]:
-            context = "\n".join([f"{msg['role']}: {msg['content']}" for msg in self.session_state["conversation_history"][-5:]])
-            messages.insert(1, {"role": "system", "content": f"最近的对话历史:\n{context}"})
-        
         # 添加系统状态上下文
         state_info = f"""
 当前系统状态:
@@ -127,7 +118,21 @@ class MainAgent:
 - 已连接数据库: {self.session_state['current_database'] or '无'}
 - 上次查询类型: {self.session_state['last_query_type'] or '无'}
 """
-        messages.insert(1, {"role": "system", "content": state_info})
+        
+        # 添加会话历史上下文
+        context_info = ""
+        if self.session_state["conversation_history"]:
+            context = "\n".join([f"{msg['role']}: {msg['content']}" for msg in self.session_state["conversation_history"][-5:]])
+            context_info = f"\n最近的对话历史:\n{context}"
+        
+        # 将所有系统信息合并为一个system消息
+        complete_system_prompt = f"{system_prompt}\n{state_info}{context_info}"
+        
+        # 构建消息列表，确保只有一个system消息
+        messages = [
+            {"role": "system", "content": complete_system_prompt},
+            {"role": "user", "content": f"用户查询: {query}"}
+        ]
         
         # 获取分类结果
         response_text = ""
@@ -459,6 +464,7 @@ class MainAgent:
         返回:
             回答结果
         """
+        # 构建综合system prompt，包含所有必要信息
         system_prompt = """你是一个专业的美妆销售数据对话助手。
 请回答用户的问题，提供专业、准确、友好的回应。
 如果问题涉及到具体的数据分析、行业知识或需要执行操作，请告知用户你可以帮助他们实现。
@@ -471,24 +477,27 @@ class MainAgent:
 
 回答应该简洁、专业，并且针对美妆行业特点。"""
         
-        # 构建消息
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": query}
-        ]
-        
-        # 如果有上下文，添加到消息中
-        if context:
-            context_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in context])
-            messages.insert(1, {"role": "system", "content": f"以下是之前的对话上下文:\n{context_str}"})
-        
-        # 添加当前系统状态
+        # 添加系统状态信息
         state_info = f"""
 当前系统状态:
 - 已加载数据文件: {self.session_state['current_data_path'] or '无'}
 - 已连接数据库: {self.session_state['current_database'] or '无'}
 """
-        messages.insert(1, {"role": "system", "content": state_info})
+        
+        # 添加上下文信息（如果有）
+        context_info = ""
+        if context:
+            context_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in context])
+            context_info = f"\n以下是之前的对话上下文:\n{context_str}"
+        
+        # 合并所有系统信息为一个完整的system prompt
+        complete_system_prompt = f"{system_prompt}{state_info}{context_info}"
+        
+        # 构建消息，确保只有一个system消息
+        messages = [
+            {"role": "system", "content": complete_system_prompt},
+            {"role": "user", "content": query}
+        ]
         
         # 使用LLM生成回答
         response_text = ""

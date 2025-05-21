@@ -256,7 +256,7 @@ class SQLAgent:
             }
         
         try:
-            # 构建系统提示
+            # 构建基础系统提示
             system_prompt = """你是一位专业的SQL专家，精通将自然语言转换为SQL查询。
 请根据用户的查询和提供的数据库结构信息，生成一个准确的SQL查询语句。
 
@@ -273,16 +273,20 @@ class SQLAgent:
 
 请注意: 请不要返回多个SQL备选项，只返回最合适的一个SQL查询。"""
 
-            # 构建消息
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"数据库结构信息:\n{self.get_db_schema_text()}\n\n用户查询: {query}"}
-            ]
-            
-            # 如果有上下文，添加到消息中
+            # 添加上下文信息（如果有）
+            context_info = ""
             if context:
                 context_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in context])
-                messages.insert(1, {"role": "system", "content": f"以下是之前的对话上下文:\n{context_str}"})
+                context_info = f"\n以下是之前的对话上下文:\n{context_str}"
+            
+            # 合并所有系统信息为一个完整的system prompt
+            complete_system_prompt = f"{system_prompt}{context_info}"
+            
+            # 构建消息，确保只有一个system消息
+            messages = [
+                {"role": "system", "content": complete_system_prompt},
+                {"role": "user", "content": f"数据库结构信息:\n{self.get_db_schema_text()}\n\n用户查询: {query}"}
+            ]
             
             # 使用LLM生成SQL
             response_text = ""
@@ -513,9 +517,18 @@ class SQLAgent:
 
 请确保解释清晰、专业，并且直接回答用户的问题。"""
 
+            # 添加上下文信息（如果有）
+            context_info = ""
+            if context:
+                context_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in context])
+                context_info = f"\n以下是之前的对话上下文:\n{context_str}"
+            
+            # 合并所有系统信息为一个完整的system prompt
+            complete_system_prompt = f"{system_prompt}{context_info}"
+
             # 构建消息
             messages = [
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": complete_system_prompt},
                 {"role": "user", "content": f"""用户的原始问题: {query}
 
 执行的SQL查询:
@@ -531,11 +544,6 @@ SQL解释:
 
 请生成一个详细的解释，帮助用户理解这些结果的含义和业务洞察。"""}
             ]
-            
-            # 如果有上下文，添加到消息中
-            if context:
-                context_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in context])
-                messages.insert(1, {"role": "system", "content": f"以下是之前的对话上下文:\n{context_str}"})
             
             # 使用LLM生成解释
             explanation = ""
