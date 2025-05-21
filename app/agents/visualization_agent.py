@@ -37,12 +37,35 @@ class VisualizationAgent:
             'api_key': api_key,
         }
         
+        # 定义可视化函数
+        self.functions = [
+            {
+                "name": "generate_visualization",
+                "description": "生成数据可视化图表",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "可视化需求描述"
+                        },
+                        "chart_type": {
+                            "type": "string",
+                            "description": "图表类型，如bar, line, pie, scatter, heatmap等"
+                        }
+                    },
+                    "required": ["query"]
+                }
+            }
+        ]
+        
         # 创建可视化Assistant实例
-        self.visualization_agent = Assistant(
+        # Note: 需要保留code_interpreter功能，所以继续使用ReActChat
+        self.visualization_assistant = Assistant(
             llm=self.llm_cfg,
             name='数据可视化专家',
-            description='专精于美妆行业销售数据可视化，能够生成精美且信息丰富的图表',
-            function_list=['code_interpreter']
+            description='专精于将美妆销售数据转化为直观的图表，突出关键趋势和洞察',
+            function_list=self.functions + ['code_interpreter']
         )
         
         # 当前数据
@@ -130,7 +153,7 @@ class VisualizationAgent:
             code_output = ""
             text_response = ""
             
-            for response in self.visualization_agent.run(messages=messages):
+            for response in self.visualization_assistant.run(messages=messages):
                 if "content" in response:
                     text_response += response["content"]
                 if "tool_calls" in response:
@@ -410,7 +433,7 @@ class VisualizationAgent:
             
             # 获取描述
             description = ""
-            for response in self.visualization_agent.run(messages=messages):
+            for response in self.visualization_assistant.run(messages=messages):
                 if "content" in response:
                     description += response["content"]
             

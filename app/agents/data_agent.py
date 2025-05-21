@@ -29,12 +29,44 @@ class DataAgent:
             'api_key': api_key,
         }
         
+        # 定义数据处理函数
+        self.functions = [
+            {
+                "name": "run_analysis",
+                "description": "对数据执行分析",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "分析需求描述"
+                        }
+                    },
+                    "required": ["query"]
+                }
+            },
+            {
+                "name": "generate_report",
+                "description": "生成数据分析报告",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "topic": {
+                            "type": "string",
+                            "description": "报告主题"
+                        }
+                    },
+                    "required": ["topic"]
+                }
+            }
+        ]
+        
         # 创建数据处理Assistant实例
-        self.data_agent = Assistant(
+        self.data_assistant = Assistant(
             llm=self.llm_cfg,
-            name='美妆数据分析专家',
-            description='专精于美妆行业销售数据分析，能够提供数据洞察和业务建议',
-            function_list=['code_interpreter']
+            name='数据分析专家',
+            description='专精于美妆销售数据的分析，能够处理数据并提供业务洞察',
+            function_list=self.functions + ['code_interpreter']
         )
         
         # 当前加载的数据
@@ -191,7 +223,7 @@ class DataAgent:
             text_response = ""
             visualization = None
             
-            for response in self.data_agent.run(messages=messages):
+            for response in self.data_assistant.run(messages=messages):
                 if "content" in response:
                     text_response += response["content"]
                 if "tool_calls" in response:
@@ -453,7 +485,7 @@ class DataAgent:
             
             # 使用LLM生成洞察
             insights_text = ""
-            for response in self.data_agent.run(messages=messages):
+            for response in self.data_assistant.run(messages=messages):
                 if "content" in response:
                     insights_text += response["content"]
             
@@ -526,7 +558,7 @@ class DataAgent:
             
             # 使用LLM生成报告
             report_text = ""
-            for response in self.data_agent.run(messages=messages):
+            for response in self.data_assistant.run(messages=messages):
                 if "content" in response:
                     report_text += response["content"]
             

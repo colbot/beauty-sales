@@ -65,6 +65,26 @@ h1, h2, h3, h4 {
     cursor: not-allowed;
 }
 
+.btn-secondary {
+    background-color: var(--secondary-color);
+    color: white;
+    border: none;
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    transition: background-color 0.3s;
+    margin-left: var(--spacing-md);
+}
+
+.btn-secondary:hover {
+    background-color: #7b5ec7; /* 稍暗的紫色 */
+}
+
+.btn-secondary:disabled {
+    background-color: var(--light-text);
+    cursor: not-allowed;
+}
+
 /* 头部 */
 .app-header {
     text-align: center;
@@ -111,6 +131,21 @@ h1, h2, h3, h4 {
     margin-bottom: var(--spacing-md);
     padding-bottom: var(--spacing-sm);
     border-bottom: 1px solid var(--border-color);
+}
+
+.section-title {
+    display: flex;
+    align-items: center;
+}
+
+.section-title h2 {
+    margin-bottom: 0;
+}
+
+#selected-data-source {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
 }
 
 .data-upload {

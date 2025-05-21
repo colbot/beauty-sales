@@ -9,6 +9,7 @@ const currentSourceName = document.getElementById('current-source-name');
 const chatMessages = document.getElementById('chat-messages');
 const messageInput = document.getElementById('message-input');
 const sendButton = document.getElementById('send-button');
+const newSessionButton = document.getElementById('new-session-button');
 const suggestionPills = document.querySelectorAll('.suggestion-pill');
 const visualizationContainer = document.getElementById('visualization-container');
 
@@ -34,6 +35,9 @@ function setupEventListeners() {
     
     // 发送消息按钮
     sendButton.addEventListener('click', sendMessage);
+    
+    // 新建会话按钮
+    newSessionButton.addEventListener('click', startNewSession);
     
     // 消息输入框回车键
     messageInput.addEventListener('keydown', (e) => {
@@ -150,9 +154,10 @@ function selectDataSource(source) {
         selectedItem.classList.add('active');
     }
     
-    // 启用消息输入
+    // 启用消息输入和新建会话按钮
     messageInput.disabled = false;
     sendButton.disabled = false;
+    newSessionButton.disabled = false;
     
     // 创建新的聊天会话
     createNewChatSession();
@@ -422,4 +427,65 @@ function showSuccess(message) {
  */
 function showError(message) {
     alert(`错误: ${message}`); // 简化版本，实际项目中可以使用toast或其他UI组件
+}
+
+/**
+ * 启动新的会话（清除历史对话）
+ */
+async function startNewSession() {
+    if (!currentDataSource) {
+        showError('请先选择一个数据源');
+        return;
+    }
+    
+    try {
+        // 禁用按钮，防止重复点击
+        newSessionButton.disabled = true;
+        
+        // 添加系统消息表示正在创建新会话
+        const loadingId = addMessage('system', '正在创建新会话...');
+        
+        // 调用后端API创建新会话
+        const response = await fetch('/api/chat/new', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                data_source_id: currentDataSource.id
+            })
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.detail || '创建新会话失败');
+        }
+        
+        const data = await response.json();
+        
+        // 更新当前会话ID
+        currentSession = data.session_id;
+        
+        // 清空聊天消息
+        chatMessages.innerHTML = '';
+        
+        // 添加新会话欢迎消息
+        addMessage('system', `已创建新会话。您现在正在使用"${currentDataSource.name}"数据集，请问有什么我可以帮您分析的吗？`);
+        
+        // 清空可视化区域
+        visualizationContainer.innerHTML = `
+            <div class="empty-state">
+                <p>数据可视化将在这里显示</p>
+                <p>通过聊天询问数据分析问题，助手将在需要时自动生成图表</p>
+            </div>
+        `;
+        
+        // 重新启用按钮
+        newSessionButton.disabled = false;
+        
+    } catch (error) {
+        console.error('创建新会话失败:', error);
+        showError(`创建新会话失败: ${error.message}`);
+        newSessionButton.disabled = false;
+    }
 } 

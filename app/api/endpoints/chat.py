@@ -35,6 +35,17 @@ class ChatResponse(BaseModel):
     response: str
     visualization_id: Optional[int] = None
 
+# 新会话请求模型
+class NewSessionRequest(BaseModel):
+    """新会话请求"""
+    data_source_id: int
+
+# 新会话响应模型
+class NewSessionResponse(BaseModel):
+    """新会话响应"""
+    session_id: str
+    message: str
+
 # 创建主控Agent
 main_agent = MainAgent()
 
@@ -100,9 +111,9 @@ async def chat(
         
         # 加载数据并初始化必要的Agent
         if data_source.file_type == "database":
-            # 初始化SQL Agent
-            if not main_agent.initialize_sql_agent(data_source.file_path):
-                raise HTTPException(status_code=500, detail="初始化SQL Agent失败")
+            # 连接数据库
+            if not main_agent.connect_database(data_source.file_path):
+                raise HTTPException(status_code=500, detail="连接数据库失败")
         else:
             # 加载数据文件
             data = load_data_from_source(data_source.file_path)
@@ -147,6 +158,57 @@ async def chat(
     except Exception as e:
         logger.error(f"处理聊天请求时发生错误: {e}")
         raise HTTPException(status_code=500, detail=f"处理聊天请求时发生错误: {str(e)}")
+
+
+@router.post("/new", response_model=NewSessionResponse)
+async def create_new_session(
+    request: NewSessionRequest = Body(...),
+    db: Session = Depends(get_db)
+):
+    """创建新的会话，清空当前页面的历史会话"""
+    try:
+        # 验证数据源是否存在
+        data_source = db.query(models.DataSource).filter(
+            models.DataSource.id == request.data_source_id
+        ).first()
+        
+        if not data_source:
+            raise HTTPException(status_code=404, detail="数据源不存在")
+        
+        # 生成新的会话ID
+        session_id = str(uuid.uuid4())
+        
+        # 创建新会话
+        chat_session = models.ChatSession(
+            session_id=session_id,
+            data_source_id=data_source.id
+        )
+        db.add(chat_session)
+        db.commit()
+        
+        # 重置主Agent的会话状态
+        main_agent.reset_session()
+        
+        # 加载数据
+        if data_source.file_type == "database":
+            # 连接数据库
+            if not main_agent.connect_database(data_source.file_path):
+                raise HTTPException(status_code=500, detail="连接数据库失败")
+        else:
+            # 加载数据文件
+            data = load_data_from_source(data_source.file_path)
+            if data is not None:
+                main_agent.data_agent.load_data_from_df(data)
+                main_agent.session_state["current_data_path"] = data_source.file_path
+        
+        return NewSessionResponse(
+            session_id=session_id,
+            message="新会话已创建"
+        )
+        
+    except Exception as e:
+        logger.error(f"创建新会话时发生错误: {e}")
+        raise HTTPException(status_code=500, detail=f"创建新会话时发生错误: {str(e)}")
 
 
 @router.get("/sessions")

@@ -31,11 +31,30 @@ class KnowledgeAgent:
         # 知识库路径
         self.kb_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'knowledge_base')
         
-        # 创建Assistant实例
-        self.knowledge_agent = Assistant(
+        # 定义知识检索函数
+        self.functions = [
+            {
+                "name": "get_knowledge_response",
+                "description": "获取美妆行业知识",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "知识查询问题"
+                        }
+                    },
+                    "required": ["query"]
+                }
+            }
+        ]
+        
+        # 创建知识检索Assistant实例
+        self.knowledge_assistant = Assistant(
             llm=self.llm_cfg,
             name='美妆行业知识专家',
-            description='专精于美妆行业专业知识，能够提供行业见解和分析'
+            description='专精于美妆行业专业知识，能够提供行业见解和市场趋势分析',
+            function_list=self.functions
         )
         
         # 初始化知识库
@@ -258,7 +277,7 @@ class KnowledgeAgent:
             
             # 使用LLM生成回答
             response_text = ""
-            for response in self.knowledge_agent.run(messages=[file_message]):
+            for response in self.knowledge_assistant.run(messages=[file_message]):
                 if "content" in response:
                     response_text = response["content"]
             

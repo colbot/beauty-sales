@@ -22,6 +22,7 @@ class SQLAgent:
         
         参数:
             db_params: 数据库连接参数，包含host, port, user, password, database等
+                      如果为None，则创建Agent但不连接数据库
         """
         # 获取API密钥和模型名称
         api_key = os.getenv("QWEN_API_KEY")
@@ -34,14 +35,34 @@ class SQLAgent:
             'api_key': api_key,
         }
         
+        # 定义SQL查询函数
+        self.functions = [
+            {
+                "name": "execute_nl_query",
+                "description": "执行自然语言查询",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "自然语言查询"
+                        }
+                    },
+                    "required": ["query"]
+                }
+            }
+        ]
+        
         # 创建SQL Assistant实例
-        self.sql_agent = Assistant(
+        self.sql_assistant = Assistant(
             llm=self.llm_cfg,
             name='SQL专家',
-            description='专精于将自然语言转换为SQL查询，并能解释SQL查询结果'
+            description='专精于将自然语言转换为SQL查询，并能解释查询结果的含义',
+            function_list=self.functions
         )
         
-        # 数据库连接
+        # 数据库连接状态
+        self.is_connected = False
         self.engine = None
         self.conn = None
         self.db_name = None
@@ -67,6 +88,7 @@ class SQLAgent:
             # 关闭现有连接
             if self.conn:
                 self.conn.close()
+                self.is_connected = False
             
             # 构建MySQL连接URI
             host = db_params.get('host', 'localhost')
@@ -81,6 +103,7 @@ class SQLAgent:
             self.engine = create_engine(connection_string)
             self.conn = self.engine.connect()
             self.db_name = database
+            self.is_connected = True
             
             # 获取数据库表信息
             self._get_db_schema()
@@ -90,12 +113,23 @@ class SQLAgent:
             
         except Exception as e:
             logger.error(f"连接数据库时发生错误: {e}")
+            self.is_connected = False
             return False
+    
+    def _check_connection(self) -> bool:
+        """检查数据库连接状态
+        
+        返回:
+            连接是否有效
+        """
+        if not self.is_connected or not self.conn:
+            logger.warning("数据库未连接")
+            return False
+        return True
     
     def _get_db_schema(self) -> None:
         """获取数据库表结构信息"""
-        if not self.conn:
-            logger.warning("未连接数据库，无法获取表结构")
+        if not self._check_connection():
             return
         
         try:
@@ -190,10 +224,10 @@ class SQLAgent:
         返回:
             查询结果
         """
-        if not self.conn:
+        if not self._check_connection():
             return {
                 "success": False,
-                "error": "未连接数据库",
+                "error": "数据库未连接，请先连接数据库",
                 "sql": sql,
                 "data": None
             }
@@ -290,7 +324,7 @@ class SQLAgent:
             
             # 使用LLM生成SQL
             response_text = ""
-            for response in self.sql_agent.run(messages=messages):
+            for response in self.sql_assistant.run(messages=messages):
                 if "content" in response:
                     response_text += response["content"]
             
@@ -410,6 +444,22 @@ class SQLAgent:
         返回:
             查询结果
         """
+        # 检查数据库连接
+        if not self._check_connection():
+            return {
+                "success": False,
+                "error": "数据库未连接，请先连接数据库后再尝试查询",
+                "query": query
+            }
+            
+        # 检查表结构信息
+        if not self.tables_info:
+            return {
+                "success": False,
+                "error": "未获取到数据库结构信息，请检查数据库连接",
+                "query": query
+            }
+        
         # 先将自然语言转换为SQL
         sql_result = self.generate_sql(query, context)
         
@@ -547,7 +597,7 @@ SQL解释:
             
             # 使用LLM生成解释
             explanation = ""
-            for response in self.sql_agent.run(messages=messages):
+            for response in self.sql_assistant.run(messages=messages):
                 if "content" in response:
                     explanation += response["content"]
             
