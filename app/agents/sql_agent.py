@@ -9,10 +9,42 @@ import json
 from typing import Dict, List, Any, Optional, Union, Tuple
 from sqlalchemy import create_engine, MetaData, Table, text
 from qwen_agent.agents import Assistant
+from qwen_agent.tools.base import BaseTool, register_tool
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+@register_tool('execute_nl_query')
+class ExecuteNLQueryTool(BaseTool):
+    """自然语言查询SQL执行工具"""
+    
+    description = '执行自然语言查询'
+    parameters = [{
+        'name': 'query',
+        'type': 'string',
+        'description': '自然语言查询',
+        'required': True
+    }]
+    
+    def __init__(self, sql_agent):
+        self.sql_agent = sql_agent
+        super().__init__()
+    
+    def call(self, params: str, **kwargs) -> str:
+        """执行自然语言查询"""
+        try:
+            params_dict = json.loads(params)
+            query = params_dict['query']
+            result = self.sql_agent._execute_nl_query(query)
+            # 返回结果的JSON字符串
+            return json.dumps(result, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"自然语言查询执行错误: {e}")
+            return json.dumps({
+                "success": False,
+                "error": str(e)
+            }, ensure_ascii=False)
 
 class SQLAgent:
     """SQL Agent，负责数据库操作和自然语言转SQL"""
@@ -34,31 +66,13 @@ class SQLAgent:
             'model_server': 'dashscope',
             'api_key': api_key,
         }
-        
-        # 定义SQL查询函数
-        self.functions = [
-            {
-                "name": "execute_nl_query",
-                "description": "执行自然语言查询",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "自然语言查询"
-                        }
-                    },
-                    "required": ["query"]
-                }
-            }
-        ]
-        
+
         # 创建SQL Assistant实例
         self.sql_assistant = Assistant(
             llm=self.llm_cfg,
             name='SQL专家',
             description='专精于将自然语言转换为SQL查询，并能解释查询结果的含义',
-            function_list=self.functions
+            function_list=['execute_nl_query']
         )
         
         # 数据库连接状态
@@ -434,7 +448,7 @@ class SQLAgent:
         
         return sql_query, explanation
     
-    def execute_nl_query(self, query: str, context: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
+    def _execute_nl_query(self, query: str, context: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
         """执行自然语言查询
         
         参数:
@@ -504,6 +518,18 @@ class SQLAgent:
             "explanation": sql_result.get("explanation", ""),
             "response": explanation
         }
+    
+    def execute_nl_query(self, query: str, context: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
+        """对外接口，执行自然语言查询
+        
+        参数:
+            query: 自然语言查询
+            context: 对话上下文
+            
+        返回:
+            查询结果
+        """
+        return self._execute_nl_query(query, context)
     
     def _generate_result_explanation(self, query: str, sql: str, data: List[Dict[str, Any]], 
                                     sql_explanation: str, context: Optional[List[Dict[str, str]]] = None) -> str:

@@ -7,10 +7,38 @@ import logging
 from typing import List, Dict, Any, Optional
 import json
 from qwen_agent.agents import Assistant
+from qwen_agent.tools.base import BaseTool, register_tool
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+@register_tool('get_knowledge_response')
+class GetKnowledgeTool(BaseTool):
+    """知识检索工具类"""
+    
+    description = '获取美妆行业知识'
+    parameters = [{
+        'name': 'query',
+        'type': 'string',
+        'description': '知识查询问题',
+        'required': True
+    }]
+    
+    def __init__(self, knowledge_agent):
+        self.knowledge_agent = knowledge_agent
+        super().__init__()
+    
+    def call(self, params: str, **kwargs) -> str:
+        """调用知识检索"""
+        try:
+            params_dict = json.loads(params)
+            query = params_dict['query']
+            response = self.knowledge_agent._get_knowledge_response(query)
+            return response
+        except Exception as e:
+            logger.error(f"知识检索工具调用错误: {e}")
+            return f"知识检索过程中发生错误: {str(e)}"
 
 class KnowledgeAgent:
     """知识检索Agent类，使用Qwen-Agent实现知识检索"""
@@ -30,31 +58,13 @@ class KnowledgeAgent:
         
         # 知识库路径
         self.kb_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'knowledge_base')
-        
-        # 定义知识检索函数
-        self.functions = [
-            {
-                "name": "get_knowledge_response",
-                "description": "获取美妆行业知识",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "知识查询问题"
-                        }
-                    },
-                    "required": ["query"]
-                }
-            }
-        ]
-        
+
         # 创建知识检索Assistant实例
         self.knowledge_assistant = Assistant(
             llm=self.llm_cfg,
             name='美妆行业知识专家',
             description='专精于美妆行业专业知识，能够提供行业见解和市场趋势分析',
-            function_list=self.functions
+            function_list=['get_knowledge_response']
         )
         
         # 初始化知识库
@@ -231,7 +241,7 @@ class KnowledgeAgent:
         
         logger.info("创建基础美妆行业知识文档完成")
     
-    def get_knowledge_response(self, query: str, context: Optional[List[Dict[str, str]]] = None) -> str:
+    def _get_knowledge_response(self, query: str, context: Optional[List[Dict[str, str]]] = None) -> str:
         """结合知识库和LLM回答问题
         
         参数:
@@ -286,6 +296,18 @@ class KnowledgeAgent:
         except Exception as e:
             logger.error(f"获取知识响应时发生错误: {e}")
             return f"抱歉，在处理您的问题时遇到了错误: {str(e)}"
+    
+    def get_knowledge_response(self, query: str, context: Optional[List[Dict[str, str]]] = None) -> str:
+        """对外接口，结合知识库和LLM回答问题
+        
+        参数:
+            query: 用户问题
+            context: 可选的上下文信息
+            
+        返回:
+            回答文本
+        """
+        return self._get_knowledge_response(query, context)
     
     def add_document_to_knowledge_base(self, title: str, content: str) -> bool:
         """添加新文档到知识库

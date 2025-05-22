@@ -13,6 +13,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from qwen_agent.agents import Assistant
+from qwen_agent.tools.base import BaseTool, register_tool
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -20,6 +21,55 @@ logger = logging.getLogger(__name__)
 
 # 配置默认绘图风格
 plt.style.use('seaborn-v0_8-whitegrid')
+
+@register_tool('generate_visualization')
+class GenerateVisualizationTool(BaseTool):
+    """数据可视化生成工具"""
+    
+    description = '生成数据可视化图表'
+    parameters = [{
+        'name': 'query',
+        'type': 'string',
+        'description': '可视化需求描述',
+        'required': True
+    }, {
+        'name': 'chart_type',
+        'type': 'string',
+        'description': '图表类型，如bar, line, pie, scatter, heatmap等',
+        'required': False
+    }]
+    
+    def __init__(self, visualization_agent):
+        self.visualization_agent = visualization_agent
+        super().__init__()
+    
+    def call(self, params: str, **kwargs) -> str:
+        """生成数据可视化"""
+        try:
+            params_dict = json.loads(params)
+            query = params_dict['query']
+            chart_type = params_dict.get('chart_type')
+            
+            if not self.visualization_agent.current_data is not None:
+                return json.dumps({
+                    "success": False,
+                    "error": "没有可用的数据进行可视化"
+                }, ensure_ascii=False)
+                
+            result = self.visualization_agent._generate_visualization(
+                self.visualization_agent.current_data, 
+                query, 
+                chart_type
+            )
+            
+            # 返回结果的JSON字符串
+            return json.dumps(result, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"生成可视化错误: {e}")
+            return json.dumps({
+                "success": False,
+                "error": str(e)
+            }, ensure_ascii=False)
 
 class VisualizationAgent:
     """可视化Agent类，负责生成数据可视化图表"""
@@ -36,36 +86,13 @@ class VisualizationAgent:
             'model_server': 'dashscope',
             'api_key': api_key,
         }
-        
-        # 定义可视化函数
-        self.functions = [
-            {
-                "name": "generate_visualization",
-                "description": "生成数据可视化图表",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "可视化需求描述"
-                        },
-                        "chart_type": {
-                            "type": "string",
-                            "description": "图表类型，如bar, line, pie, scatter, heatmap等"
-                        }
-                    },
-                    "required": ["query"]
-                }
-            }
-        ]
-        
+
         # 创建可视化Assistant实例
-        # Note: 需要保留code_interpreter功能，所以继续使用ReActChat
         self.visualization_assistant = Assistant(
             llm=self.llm_cfg,
             name='数据可视化专家',
             description='专精于将美妆销售数据转化为直观的图表，突出关键趋势和洞察',
-            function_list=self.functions + ['code_interpreter']
+            function_list=['generate_visualization', 'code_interpreter']
         )
         
         # 当前数据
@@ -90,7 +117,7 @@ class VisualizationAgent:
         # 可视化历史
         self.visualization_history = []
     
-    def generate_visualization(self, data: Union[pd.DataFrame, Dict, List], query: str, 
+    def _generate_visualization(self, data: Union[pd.DataFrame, Dict, List], query: str, 
                               chart_type: Optional[str] = None) -> Dict[str, Any]:
         """生成数据可视化
         

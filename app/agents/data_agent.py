@@ -6,12 +6,76 @@ import os
 import logging
 import pandas as pd
 import numpy as np
+import json
 from typing import Dict, List, Any, Union, Optional
 from qwen_agent.agents import Assistant
+from qwen_agent.tools.base import BaseTool, register_tool
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+@register_tool('run_analysis')
+class RunAnalysisTool(BaseTool):
+    """数据分析执行工具"""
+    
+    description = '对数据执行分析'
+    parameters = [{
+        'name': 'query',
+        'type': 'string',
+        'description': '分析需求描述',
+        'required': True
+    }]
+    
+    def __init__(self, data_agent):
+        self.data_agent = data_agent
+        super().__init__()
+    
+    def call(self, params: str, **kwargs) -> str:
+        """执行数据分析"""
+        try:
+            params_dict = json.loads(params)
+            query = params_dict['query']
+            result = self.data_agent._run_analysis(query)
+            # 返回结果的JSON字符串
+            return json.dumps(result, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"数据分析执行错误: {e}")
+            return json.dumps({
+                "success": False,
+                "error": str(e)
+            }, ensure_ascii=False)
+
+@register_tool('generate_report')
+class GenerateReportTool(BaseTool):
+    """报告生成工具"""
+    
+    description = '生成数据分析报告'
+    parameters = [{
+        'name': 'topic',
+        'type': 'string',
+        'description': '报告主题',
+        'required': True
+    }]
+    
+    def __init__(self, data_agent):
+        self.data_agent = data_agent
+        super().__init__()
+    
+    def call(self, params: str, **kwargs) -> str:
+        """生成数据分析报告"""
+        try:
+            params_dict = json.loads(params)
+            topic = params_dict['topic']
+            result = self.data_agent._generate_report(topic)
+            # 返回结果的JSON字符串
+            return json.dumps(result, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"报告生成错误: {e}")
+            return json.dumps({
+                "success": False,
+                "error": str(e)
+            }, ensure_ascii=False)
 
 class DataAgent:
     """数据处理Agent类，处理美妆销售数据分析"""
@@ -29,44 +93,12 @@ class DataAgent:
             'api_key': api_key,
         }
         
-        # 定义数据处理函数
-        self.functions = [
-            {
-                "name": "run_analysis",
-                "description": "对数据执行分析",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "分析需求描述"
-                        }
-                    },
-                    "required": ["query"]
-                }
-            },
-            {
-                "name": "generate_report",
-                "description": "生成数据分析报告",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "topic": {
-                            "type": "string",
-                            "description": "报告主题"
-                        }
-                    },
-                    "required": ["topic"]
-                }
-            }
-        ]
-        
         # 创建数据处理Assistant实例
         self.data_assistant = Assistant(
             llm=self.llm_cfg,
             name='数据分析专家',
             description='专精于美妆销售数据的分析，能够处理数据并提供业务洞察',
-            function_list=self.functions + ['code_interpreter']
+            function_list=['run_analysis', 'generate_report', 'code_interpreter']
         )
         
         # 当前加载的数据
@@ -169,7 +201,7 @@ class DataAgent:
             logger.error(f"生成数据摘要时发生错误: {e}")
             return {"error": f"生成数据摘要失败: {e}"}
     
-    def run_analysis(self, query: str, context: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
+    def _run_analysis(self, query: str, context: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
         """运行数据分析
         
         参数:
@@ -252,14 +284,29 @@ class DataAgent:
             }
             
         except Exception as e:
-            logger.error(f"执行数据分析时发生错误: {e}")
-            return {"error": f"数据分析失败: {e}", "success": False}
+            logger.error(f"分析数据时发生错误: {e}")
+            return {
+                "error": f"分析数据时发生错误: {e}",
+                "success": False
+            }
+    
+    def run_analysis(self, query: str, context: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
+        """对外接口，运行数据分析
+        
+        参数:
+            query: 用户查询
+            context: 对话上下文
+            
+        返回:
+            分析结果
+        """
+        return self._run_analysis(query, context)
     
     def get_analysis_history(self) -> List[Dict[str, Any]]:
-        """获取分析历史记录
+        """获取分析历史
         
         返回:
-            分析历史记录列表
+            分析历史列表
         """
         return self.analysis_history
     
@@ -509,7 +556,7 @@ class DataAgent:
             logger.error(f"提取业务洞察时发生错误: {e}")
             return [f"提取洞察过程中发生错误: {e}"]
     
-    def generate_report(self, query: str) -> Dict[str, Any]:
+    def _generate_report(self, query: str) -> Dict[str, Any]:
         """生成数据分析报告
         
         参数:
@@ -580,4 +627,15 @@ class DataAgent:
             
         except Exception as e:
             logger.error(f"生成报告时发生错误: {e}")
-            return {"error": f"报告生成失败: {e}", "success": False} 
+            return {"error": f"报告生成失败: {e}", "success": False}
+    
+    def generate_report(self, query: str) -> Dict[str, Any]:
+        """对外接口，生成数据分析报告
+        
+        参数:
+            query: 用户请求的报告主题
+            
+        返回:
+            报告内容
+        """
+        return self._generate_report(query) 
