@@ -257,16 +257,19 @@ class KnowledgeAgent:
 请基于提供的知识内容回答用户问题。如果知识内容不足以完全回答问题，可以使用你的专业知识进行补充，但要明确区分哪些是来自知识库的信息，哪些是你的补充。
 回答应该专业、简洁，并且具有实际操作价值。"""
             
+            # 准备用户消息内容
+            user_content = query
+            
+            # 如果有上下文，将上下文添加到用户消息中
+            if context:
+                context_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in context])
+                user_content = f"以下是之前的对话上下文:\n{context_str}\n\n{user_content}"
+            
             # 构建消息
             messages = [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": query}
+                {"role": "user", "content": user_content}
             ]
-            
-            # 如果有上下文，添加到消息中
-            if context:
-                context_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in context])
-                messages.insert(1, {"role": "system", "content": f"以下是之前的对话上下文:\n{context_str}"})
             
             # 准备文件内容
             content = [{"text": query}]

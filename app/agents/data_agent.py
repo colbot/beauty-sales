@@ -239,16 +239,18 @@ class DataAgent:
 - 列名: {', '.join(self.current_data.columns)}
 """
             
-            # 构建消息
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"{data_info}\n\n用户问题: {query}"}
-            ]
+            # 构建消息，确保只有一个system消息在第一位
+            user_content = f"{data_info}\n\n用户问题: {query}"
             
-            # 如果有上下文，添加到消息中
+            # 如果有上下文，将上下文添加到用户消息中
             if context:
                 context_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in context])
-                messages.insert(1, {"role": "system", "content": f"以下是之前的对话上下文:\n{context_str}"})
+                user_content = f"以下是之前的对话上下文:\n{context_str}\n\n{user_content}"
+            
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content}
+            ]
             
             # 使用LLM生成分析
             code_output = ""
