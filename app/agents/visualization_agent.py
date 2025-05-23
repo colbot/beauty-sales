@@ -117,6 +117,26 @@ class VisualizationAgent:
         # 可视化历史
         self.visualization_history = []
     
+    def create_visualization(self, query: str, chart_type: Optional[str] = None) -> Dict[str, Any]:
+        """对外接口，创建数据可视化
+        
+        参数:
+            query: 用户可视化需求
+            chart_type: 可选的图表类型
+            
+        返回:
+            可视化结果
+        """
+        if self.current_data is None:
+            return {
+                "success": False,
+                "error": "没有可用的数据进行可视化",
+                "visualization": None,
+                "description": "请先加载数据后再尝试生成可视化"
+            }
+            
+        return self._generate_visualization(self.current_data, query, chart_type)
+    
     def _generate_visualization(self, data: Union[pd.DataFrame, Dict, List], query: str, 
                               chart_type: Optional[str] = None) -> Dict[str, Any]:
         """生成数据可视化
@@ -181,10 +201,10 @@ class VisualizationAgent:
             text_response = ""
             
             for response in self.visualization_assistant.run(messages=messages):
-                if "content" in response:
-                    text_response += response["content"]
-                if "tool_calls" in response:
-                    for tool_call in response["tool_calls"]:
+                if "content" in response[0]:
+                    text_response += response[0]["content"]
+                if "tool_calls" in response[0]:
+                    for tool_call in response[0]["tool_calls"]:
                         if tool_call["type"] == "code_interpreter":
                             code_output = tool_call.get("output", "")
                             # 检查是否有可视化输出
@@ -461,8 +481,8 @@ class VisualizationAgent:
             # 获取描述
             description = ""
             for response in self.visualization_assistant.run(messages=messages):
-                if "content" in response:
-                    description += response["content"]
+                if "content" in response[0]:
+                    description += response[0]["content"]
             
             return description if description else "此图表展示了数据的可视化分析结果。"
             

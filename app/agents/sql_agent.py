@@ -339,8 +339,8 @@ class SQLAgent:
             # 使用LLM生成SQL
             response_text = ""
             for response in self.sql_assistant.run(messages=messages):
-                if "content" in response:
-                    response_text += response["content"]
+                if "content" in response[0]:
+                    response_text += response[0]["content"]
             
             # 解析响应，提取SQL
             sql_query, explanation = self._extract_sql_and_explanation(response_text)
@@ -624,8 +624,8 @@ SQL解释:
             # 使用LLM生成解释
             explanation = ""
             for response in self.sql_assistant.run(messages=messages):
-                if "content" in response:
-                    explanation += response["content"]
+                if "content" in response[0]:
+                    explanation += response[0]["content"]
             
             return explanation
             

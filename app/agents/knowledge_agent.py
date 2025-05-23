@@ -288,8 +288,8 @@ class KnowledgeAgent:
             # 使用LLM生成回答
             response_text = ""
             for response in self.knowledge_assistant.run(messages=[file_message]):
-                if "content" in response:
-                    response_text = response["content"]
+                if "content" in response[0]:
+                    response_text = response[0]["content"]
             
             return response_text
             

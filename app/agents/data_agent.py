@@ -256,10 +256,10 @@ class DataAgent:
             visualization = None
             
             for response in self.data_assistant.run(messages=messages):
-                if "content" in response:
-                    text_response += response["content"]
-                if "tool_calls" in response:
-                    for tool_call in response["tool_calls"]:
+                if "content" in response[0]:
+                    text_response += response[0]["content"]
+                if "tool_calls" in response[0]:
+                    for tool_call in response[0]["tool_calls"]:
                         if tool_call["type"] == "code_interpreter":
                             code_output = tool_call.get("output", "")
                             # 检查是否有可视化输出
@@ -533,8 +533,8 @@ class DataAgent:
             # 使用LLM生成洞察
             insights_text = ""
             for response in self.data_assistant.run(messages=messages):
-                if "content" in response:
-                    insights_text += response["content"]
+                if "content" in response[0]:
+                    insights_text += response[0]["content"]
             
             # 分割洞察为列表
             insights_list = []
@@ -606,8 +606,8 @@ class DataAgent:
             # 使用LLM生成报告
             report_text = ""
             for response in self.data_assistant.run(messages=messages):
-                if "content" in response:
-                    report_text += response["content"]
+                if "content" in response[0]:
+                    report_text += response[0]["content"]
             
             # 记录报告生成
             report_record = {

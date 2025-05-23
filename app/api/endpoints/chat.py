@@ -120,6 +120,8 @@ async def chat(
             if data is not None:
                 main_agent.data_agent.load_data_from_df(data)
                 main_agent.session_state["current_data_path"] = data_source.file_path
+                # 同步数据到其他Agent
+                main_agent._sync_data_between_agents()
         
         # 处理聊天请求
         chat_result = main_agent.process_query(chat_request.message)

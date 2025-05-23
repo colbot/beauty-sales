@@ -71,6 +71,12 @@ class MainAgent:
             "show_data_labels": True
         }
     
+    def _sync_data_between_agents(self):
+        """同步各个Agent之间的数据"""
+        if self.data_agent.current_data is not None:
+            self.visualization_agent.current_data = self.data_agent.current_data
+            logger.info("已将数据同步到可视化Agent")
+    
     def connect_database(self, db_path: str) -> bool:
         """连接到数据库
         
@@ -118,13 +124,17 @@ class MainAgent:
 - 已加载数据文件: {self.session_state['current_data_path'] or '无'}
 - 已连接数据库: {self.session_state['current_database'] or '无'}
 
-你有多种能力:
-1. 提供美妆行业专业知识
-2. 将自然语言转换为SQL查询
-3. 美妆销售数据的分析
-4. 将美妆销售数据转化为直观的图表
+你需要先分析用户问题的意图，根据用户的核心需求转交给合适的专家去解决。你可以请求帮助的专家有以下几个:
+1. 美妆行业知识专家: 提供美妆行业专业知识
+2. SQL专家: 将自然语言转换为SQL查询
+3. 数据分析专家: 美妆销售数据的分析
+4. 数据可视化专家: 将美妆销售数据转化为直观的图表
 
-请根据用户需求，选择合适的能力来回答问题。对于数据分析和数据库查询，需要先确保数据已加载或数据库已连接。
+请根据用户需求，选择合适的专家来回答问题。如果你觉得有些问题与这些专家的能力无关，那么就由自己直接回答
+对于数据分析和数据库查询，需要先确保数据已加载或数据库已连接。
+
+请在回复的开头明确指出你选择了哪个专家来回答这个问题，格式为：'[专家类型]：回答内容'。
+例如：'[美妆行业知识专家]：这是关于美妆行业的回答...'
 """
         
         # 构建消息
@@ -133,25 +143,89 @@ class MainAgent:
             {"role": "user", "content": query}
         ]
         
-        # 使用Router处理查询
-        response_text = ""
+        # 使用Router处理查询来确定应该使用哪个专业Agent
+        router_response_text = ""
         visualization = None
         code_output = ""
         source_agent = "router"
         
         for response in self.control_agent.run(messages):
-            if "content" in response:
-                response_text += response["content"]
+            if "content" in response[0]:
+                router_response_text += response[0]["content"]
             
             # 处理工具调用
-            if "tool_calls" in response:
-                for tool_call in response["tool_calls"]:
+            if "tool_calls" in response[0]:
+                for tool_call in response[0]["tool_calls"]:
                     # 处理代码解释器调用
                     if tool_call["type"] == "code_interpreter":
                         code_output = tool_call.get("output", "")
                         # 检查是否有可视化输出
                         if isinstance(code_output, dict) and "image/png" in code_output:
                             visualization = code_output.get("image/png")
+        
+        # 根据Router的回复确定应该使用哪个专业Agent
+        selected_agent = None
+        response_text = router_response_text
+        specialist_result = None
+        
+        # 从回复中分析出应该使用哪个专家
+        lower_response = router_response_text.lower()
+        
+        # 检查是否明确指出了专家类型（按Router回复的格式来分析）
+        if '[美妆行业知识专家]' in router_response_text or '知识专家' in lower_response:
+            logger.info("Router选择了知识检索Agent处理查询")
+            selected_agent = "knowledge"
+            # 调用知识专家处理查询
+            specialist_result = self.knowledge_agent.get_knowledge_response(query, self.session_state["conversation_history"])
+            source_agent = "knowledge"
+            response_text = specialist_result
+            
+        elif '[SQL专家]' in router_response_text or 'sql专家' in lower_response or '数据库' in lower_response:
+            logger.info("Router选择了SQL Agent处理查询")
+            selected_agent = "sql"
+            # 调用SQL专家处理查询
+            if self.session_state["current_database"]:
+                specialist_result = self.sql_agent.execute_nl_query(query, self.session_state["conversation_history"])
+                source_agent = "sql"
+                if specialist_result["success"]:
+                    response_text = specialist_result["response"]
+                    # 检查是否有可视化需求，如果有则将数据传递给可视化Agent
+                    if len(specialist_result.get("data", [])) > 0:
+                        # 可以在这里添加自动可视化的逻辑
+                        pass
+                else:
+                    response_text = f"SQL查询失败: {specialist_result.get('error', '未知错误')}"
+            else:
+                response_text = "无法执行SQL查询，因为尚未连接数据库。请先连接数据库后再尝试。"
+            
+        elif '[数据分析专家]' in router_response_text or '数据分析' in lower_response:
+            logger.info("Router选择了数据分析Agent处理查询")
+            selected_agent = "data"
+            # 调用数据分析专家处理查询
+            if self.session_state["current_data_path"]:
+                specialist_result = self.data_agent.run_analysis(query, self.session_state["conversation_history"])
+                source_agent = "data"
+                response_text = specialist_result.get("response", "")
+                visualization = specialist_result.get("visualization")
+                code_output = specialist_result.get("code_output", "")
+            else:
+                response_text = "无法执行数据分析，因为尚未加载数据。请先加载数据后再尝试。"
+            
+        elif '[数据可视化专家]' in router_response_text or '可视化' in lower_response or '图表' in lower_response:
+            logger.info("Router选择了可视化Agent处理查询")
+            selected_agent = "visualization"
+            # 调用可视化专家处理查询
+            if self.data_agent.current_data is not None:
+                specialist_result = self.visualization_agent.create_visualization(query)
+                source_agent = "visualization"
+                response_text = specialist_result.get("description", "")
+                visualization = specialist_result.get("visualization")
+            else:
+                response_text = "无法创建可视化，因为尚未加载数据。请先加载数据后再尝试。"
+        
+        # 如果没有明确指定专家或Router自己回答了问题，则使用Router的回复
+        if not selected_agent:
+            logger.info("Router直接回答了问题，无需专业Agent介入")
         
         # 记录回复到会话历史
         self.session_state["conversation_history"].append({"role": "assistant", "content": response_text})
