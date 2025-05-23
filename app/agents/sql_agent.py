@@ -9,10 +9,42 @@ import json
 from typing import Dict, List, Any, Optional, Union, Tuple
 from sqlalchemy import create_engine, MetaData, Table, text
 from qwen_agent.agents import Assistant
+from qwen_agent.tools.base import BaseTool, register_tool
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+@register_tool('execute_nl_query')
+class ExecuteNLQueryTool(BaseTool):
+    """自然语言查询SQL执行工具"""
+    
+    description = '执行自然语言查询'
+    parameters = [{
+        'name': 'query',
+        'type': 'string',
+        'description': '自然语言查询',
+        'required': True
+    }]
+    
+    def __init__(self, sql_agent):
+        self.sql_agent = sql_agent
+        super().__init__()
+    
+    def call(self, params: str, **kwargs) -> str:
+        """执行自然语言查询"""
+        try:
+            params_dict = json.loads(params)
+            query = params_dict['query']
+            result = self.sql_agent._execute_nl_query(query)
+            # 返回结果的JSON字符串
+            return json.dumps(result, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"自然语言查询执行错误: {e}")
+            return json.dumps({
+                "success": False,
+                "error": str(e)
+            }, ensure_ascii=False)
 
 class SQLAgent:
     """SQL Agent，负责数据库操作和自然语言转SQL"""
@@ -22,6 +54,7 @@ class SQLAgent:
         
         参数:
             db_params: 数据库连接参数，包含host, port, user, password, database等
+                      如果为None，则创建Agent但不连接数据库
         """
         # 获取API密钥和模型名称
         api_key = os.getenv("QWEN_API_KEY")
@@ -33,15 +66,17 @@ class SQLAgent:
             'model_server': 'dashscope',
             'api_key': api_key,
         }
-        
+
         # 创建SQL Assistant实例
-        self.sql_agent = Assistant(
+        self.sql_assistant = Assistant(
             llm=self.llm_cfg,
             name='SQL专家',
-            description='专精于将自然语言转换为SQL查询，并能解释SQL查询结果'
+            description='专精于将自然语言转换为SQL查询，并能解释查询结果的含义',
+            function_list=['execute_nl_query']
         )
         
-        # 数据库连接
+        # 数据库连接状态
+        self.is_connected = False
         self.engine = None
         self.conn = None
         self.db_name = None
@@ -67,6 +102,7 @@ class SQLAgent:
             # 关闭现有连接
             if self.conn:
                 self.conn.close()
+                self.is_connected = False
             
             # 构建MySQL连接URI
             host = db_params.get('host', 'localhost')
@@ -81,6 +117,7 @@ class SQLAgent:
             self.engine = create_engine(connection_string)
             self.conn = self.engine.connect()
             self.db_name = database
+            self.is_connected = True
             
             # 获取数据库表信息
             self._get_db_schema()
@@ -90,12 +127,23 @@ class SQLAgent:
             
         except Exception as e:
             logger.error(f"连接数据库时发生错误: {e}")
+            self.is_connected = False
             return False
+    
+    def _check_connection(self) -> bool:
+        """检查数据库连接状态
+        
+        返回:
+            连接是否有效
+        """
+        if not self.is_connected or not self.conn:
+            logger.warning("数据库未连接")
+            return False
+        return True
     
     def _get_db_schema(self) -> None:
         """获取数据库表结构信息"""
-        if not self.conn:
-            logger.warning("未连接数据库，无法获取表结构")
+        if not self._check_connection():
             return
         
         try:
@@ -190,10 +238,10 @@ class SQLAgent:
         返回:
             查询结果
         """
-        if not self.conn:
+        if not self._check_connection():
             return {
                 "success": False,
-                "error": "未连接数据库",
+                "error": "数据库未连接，请先连接数据库",
                 "sql": sql,
                 "data": None
             }
@@ -256,7 +304,7 @@ class SQLAgent:
             }
         
         try:
-            # 构建系统提示
+            # 构建基础系统提示
             system_prompt = """你是一位专业的SQL专家，精通将自然语言转换为SQL查询。
 请根据用户的查询和提供的数据库结构信息，生成一个准确的SQL查询语句。
 
@@ -273,22 +321,26 @@ class SQLAgent:
 
 请注意: 请不要返回多个SQL备选项，只返回最合适的一个SQL查询。"""
 
-            # 构建消息
+            # 添加上下文信息（如果有）
+            context_info = ""
+            if context:
+                context_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in context])
+                context_info = f"\n以下是之前的对话上下文:\n{context_str}"
+            
+            # 合并所有系统信息为一个完整的system prompt
+            complete_system_prompt = f"{system_prompt}{context_info}"
+            
+            # 构建消息，确保只有一个system消息
             messages = [
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": complete_system_prompt},
                 {"role": "user", "content": f"数据库结构信息:\n{self.get_db_schema_text()}\n\n用户查询: {query}"}
             ]
             
-            # 如果有上下文，添加到消息中
-            if context:
-                context_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in context])
-                messages.insert(1, {"role": "system", "content": f"以下是之前的对话上下文:\n{context_str}"})
-            
             # 使用LLM生成SQL
             response_text = ""
-            for response in self.sql_agent.run(messages=messages):
-                if "content" in response:
-                    response_text += response["content"]
+            for response in self.sql_assistant.run(messages=messages):
+                if "content" in response[0]:
+                    response_text += response[0]["content"]
             
             # 解析响应，提取SQL
             sql_query, explanation = self._extract_sql_and_explanation(response_text)
@@ -396,7 +448,7 @@ class SQLAgent:
         
         return sql_query, explanation
     
-    def execute_nl_query(self, query: str, context: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
+    def _execute_nl_query(self, query: str, context: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
         """执行自然语言查询
         
         参数:
@@ -406,6 +458,22 @@ class SQLAgent:
         返回:
             查询结果
         """
+        # 检查数据库连接
+        if not self._check_connection():
+            return {
+                "success": False,
+                "error": "数据库未连接，请先连接数据库后再尝试查询",
+                "query": query
+            }
+            
+        # 检查表结构信息
+        if not self.tables_info:
+            return {
+                "success": False,
+                "error": "未获取到数据库结构信息，请检查数据库连接",
+                "query": query
+            }
+        
         # 先将自然语言转换为SQL
         sql_result = self.generate_sql(query, context)
         
@@ -450,6 +518,18 @@ class SQLAgent:
             "explanation": sql_result.get("explanation", ""),
             "response": explanation
         }
+    
+    def execute_nl_query(self, query: str, context: Optional[List[Dict[str, str]]] = None) -> Dict[str, Any]:
+        """对外接口，执行自然语言查询
+        
+        参数:
+            query: 自然语言查询
+            context: 对话上下文
+            
+        返回:
+            查询结果
+        """
+        return self._execute_nl_query(query, context)
     
     def _generate_result_explanation(self, query: str, sql: str, data: List[Dict[str, Any]], 
                                     sql_explanation: str, context: Optional[List[Dict[str, str]]] = None) -> str:
@@ -513,9 +593,18 @@ class SQLAgent:
 
 请确保解释清晰、专业，并且直接回答用户的问题。"""
 
+            # 添加上下文信息（如果有）
+            context_info = ""
+            if context:
+                context_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in context])
+                context_info = f"\n以下是之前的对话上下文:\n{context_str}"
+            
+            # 合并所有系统信息为一个完整的system prompt
+            complete_system_prompt = f"{system_prompt}{context_info}"
+
             # 构建消息
             messages = [
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": complete_system_prompt},
                 {"role": "user", "content": f"""用户的原始问题: {query}
 
 执行的SQL查询:
@@ -532,16 +621,11 @@ SQL解释:
 请生成一个详细的解释，帮助用户理解这些结果的含义和业务洞察。"""}
             ]
             
-            # 如果有上下文，添加到消息中
-            if context:
-                context_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in context])
-                messages.insert(1, {"role": "system", "content": f"以下是之前的对话上下文:\n{context_str}"})
-            
             # 使用LLM生成解释
             explanation = ""
-            for response in self.sql_agent.run(messages=messages):
-                if "content" in response:
-                    explanation += response["content"]
+            for response in self.sql_assistant.run(messages=messages):
+                if "content" in response[0]:
+                    explanation += response[0]["content"]
             
             return explanation
             
