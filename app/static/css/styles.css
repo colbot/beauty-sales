@@ -345,6 +345,7 @@ h1, h2, h3, h4 {
     background-color: #f5f7fb;
     border-radius: 8px;
     font-size: 14px;
+    position: relative;
 }
 
 /* 思考步骤 */
@@ -352,6 +353,23 @@ h1, h2, h3, h4 {
     padding: 8px 0;
     margin-bottom: 10px;
     color: #777;
+}
+
+/* 临时思考中消息样式 */
+.temporary-thinking {
+    font-style: italic;
+    color: #888;
+    background-color: #f0f0f0;
+    padding: 5px 10px;
+    border-radius: 4px;
+    margin-bottom: 10px;
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 0.6; }
+    50% { opacity: 1; }
+    100% { opacity: 0.6; }
 }
 
 /* 计划步骤 */
@@ -470,4 +488,128 @@ h1, h2, h3, h4 {
     font-size: 13px;
     color: #555;
     line-height: 1.5;
+}
+
+/* 最终结果区域样式 */
+.final-result {
+    margin-top: 20px;
+    padding: 15px;
+    border-radius: 8px;
+    background-color: #f8f9ff;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.result-divider {
+    height: 1px;
+    background: linear-gradient(to right, transparent, var(--primary-color), transparent);
+    margin: 10px 0 15px 0;
+}
+
+.result-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+    color: var(--primary-dark);
+    font-weight: 500;
+}
+
+.result-icon {
+    margin-right: 8px;
+    font-size: 18px;
+}
+
+.result-content {
+    padding: 10px;
+    line-height: 1.6;
+    color: var(--text-color);
+    background-color: white;
+    border-radius: 6px;
+    border-left: 3px solid var(--primary-color);
+}
+
+/* 分析过程按钮容器 */
+.process-button-container {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 10px;
+}
+
+/* 折叠/展开按钮 */
+.toggle-process-btn {
+    background-color: var(--light-gray);
+    border: 1px solid var(--border-color);
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 12px;
+    color: var(--light-text);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+}
+
+.toggle-process-btn:hover {
+    background-color: var(--accent-color);
+    color: var(--text-color);
+}
+
+.toggle-process-btn:before {
+    content: "🔍";
+    margin-right: 5px;
+    font-size: 14px;
+}
+
+/* 思考指示器 */
+.thinking-indicator {
+    padding: 10px;
+    text-align: center;
+    margin-bottom: 15px;
+}
+
+.thinking-dots {
+    font-size: 14px;
+    color: #777;
+    display: inline-block;
+    position: relative;
+}
+
+.thinking-dots .dot {
+    display: inline-block;
+    animation: dotPulse 1.5s infinite;
+    opacity: 0.6;
+}
+
+.thinking-dots .dot:nth-child(1) {
+    animation-delay: 0s;
+}
+
+.thinking-dots .dot:nth-child(2) {
+    animation-delay: 0.3s;
+}
+
+.thinking-dots .dot:nth-child(3) {
+    animation-delay: 0.6s;
+}
+
+@keyframes dotPulse {
+    0% { opacity: 0.2; }
+    50% { opacity: 1; }
+    100% { opacity: 0.2; }
+}
+
+/* 可视化预览 */
+.visualization-preview {
+    margin-top: 15px;
+    padding: 10px;
+    background-color: #f8f9ff;
+    border-radius: 6px;
+    border: 1px solid #e8e8e8;
+    text-align: center;
+}
+
+.visualization-image {
+    max-width: 100%;
+    height: auto;
+    border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 } 

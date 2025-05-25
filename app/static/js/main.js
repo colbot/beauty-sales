@@ -196,13 +196,10 @@ async function sendMessage() {
     if (!message) return;
     
     // 添加用户消息到聊天框
-    addMessage('user', message);
+    const userMessageId = addMessage('user', message);
     
     // 清空输入框
     messageInput.value = '';
-    
-    // 显示思考中消息
-    const thinkingId = addMessage('assistant', '思考中...');
     
     try {
         // 准备请求数据
@@ -218,21 +215,33 @@ async function sendMessage() {
             requestData.data_source_id = currentDataSource.id;
         }
         
-        // 使用流式API发送消息
-        await streamMessage(requestData, thinkingId);
-    } catch (error) {
-        console.error('发送消息失败:', error);
-        updateMessage(thinkingId, 'assistant', `抱歉，我遇到了一些问题: ${error.message}`);
-    }
-}
-
-/**
- * 使用流式API发送消息并处理响应
- * @param {Object} requestData - 请求数据
- * @param {string} messageId - 消息ID
- */
-async function streamMessage(requestData, messageId) {
-    try {
+        // 创建分析过程容器，直接添加到用户消息之后
+        const analysisProcessId = `analysis-process-${Date.now()}`;
+        const userMessageElement = document.getElementById(userMessageId);
+        
+        // 创建并添加分析过程容器
+        const processContainer = document.createElement('div');
+        processContainer.className = 'analysis-process-container';
+        processContainer.id = analysisProcessId;
+        processContainer.setAttribute('data-expanded', 'true');
+        processContainer.setAttribute('data-final-response', '');
+        
+        // 添加初始思考指示器
+        const thinkingIndicator = document.createElement('div');
+        thinkingIndicator.className = 'thinking-indicator';
+        thinkingIndicator.innerHTML = `<span class="thinking-dots">思考中<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></span>`;
+        processContainer.appendChild(thinkingIndicator);
+        
+        // 将分析过程容器插入到用户消息之后
+        if (userMessageElement.nextSibling) {
+            chatMessages.insertBefore(processContainer, userMessageElement.nextSibling);
+        } else {
+            chatMessages.appendChild(processContainer);
+        }
+        
+        // 滚动到底部
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+        
         // 创建请求
         const response = await fetch('/api/chat/stream', {
             method: 'POST',
@@ -245,10 +254,6 @@ async function streamMessage(requestData, messageId) {
         if (!response.ok) {
             throw new Error(`HTTP错误 ${response.status}`);
         }
-        
-        // 创建用于实时显示分析过程的容器
-        const analysisProcessId = `analysis-process-${Date.now()}`;
-        appendAnalysisProcessContainer(messageId, analysisProcessId);
         
         // 读取流式响应
         const reader = response.body.getReader();
@@ -273,9 +278,11 @@ async function streamMessage(requestData, messageId) {
                 
                 try {
                     const data = JSON.parse(line);
-                    processStreamingMessage(data, messageId, analysisProcessId);
-        
-        // 保存会话ID
+                    
+                    // 处理流式消息
+                    processStreamingMessage(data, analysisProcessId);
+                    
+                    // 保存会话ID
                     if (data.type === 'start' && data.content.session_id) {
                         currentSession = data.content.session_id;
                     }
@@ -284,8 +291,64 @@ async function streamMessage(requestData, messageId) {
                     if (data.type === 'final') {
                         finalResponse = data.content.response;
                         
+                        // 移除思考指示器
+                        const thinkingIndicator = processContainer.querySelector('.thinking-indicator');
+                        if (thinkingIndicator) {
+                            thinkingIndicator.remove();
+                        }
+                        
+                        // 创建折叠/展开按钮
+                        if (!processContainer.querySelector('.toggle-process-btn')) {
+                            const buttonContainer = document.createElement('div');
+                            buttonContainer.className = 'process-button-container';
+                            
+                            const toggleButton = document.createElement('button');
+                            toggleButton.className = 'toggle-process-btn';
+                            toggleButton.innerHTML = '收起思考过程';
+                            toggleButton.onclick = function() {
+                                const isExpanded = processContainer.getAttribute('data-expanded') !== 'false';
+                                
+                                // 获取所有思考步骤元素
+                                const thinkingElements = processContainer.querySelectorAll('.plan-step, .experts-step, .expert-start');
+                                
+                                // 获取最终结果元素
+                                const finalResult = processContainer.querySelector('.final-result');
+                                
+                                if (isExpanded) {
+                                    // 收起思考过程
+                                    thinkingElements.forEach(el => {
+                                        el.style.display = 'none';
+                                    });
+                                    toggleButton.innerHTML = '展开思考过程';
+                                    processContainer.setAttribute('data-expanded', 'false');
+                                } else {
+                                    // 展开思考过程
+                                    thinkingElements.forEach(el => {
+                                        el.style.display = '';
+                                    });
+                                    toggleButton.innerHTML = '收起思考过程';
+                                    processContainer.setAttribute('data-expanded', 'true');
+                                }
+                            };
+                            
+                            buttonContainer.appendChild(toggleButton);
+                            processContainer.insertBefore(buttonContainer, processContainer.firstChild);
+                        }
+                        
+                        // 更新分析过程容器的data-final-response属性
+                        processContainer.setAttribute('data-final-response', finalResponse);
+                        
                         if (data.content.visualization_id) {
                             visualizationId = data.content.visualization_id;
+                        }
+                        
+                        // 添加助手的最终回复消息（在分析过程容器之后）
+                        const assistantMessageId = addMessage('assistant', finalResponse);
+                        
+                        // 将分析过程容器移动到新的助手消息之前
+                        const assistantMessageElement = document.getElementById(assistantMessageId);
+                        if (assistantMessageElement) {
+                            chatMessages.insertBefore(processContainer, assistantMessageElement);
                         }
                     }
                 } catch (e) {
@@ -294,38 +357,30 @@ async function streamMessage(requestData, messageId) {
             }
         }
         
-        // 更新最终助手回复
-        updateMessage(messageId, 'assistant', finalResponse);
-        
         // 如果有可视化，显示图表
         if (visualizationId) {
             loadVisualization(visualizationId);
         }
     } catch (error) {
-        console.error('流式处理失败:', error);
-        throw error;
+        console.error('发送消息失败:', error);
+        // 在用户消息后添加错误消息
+        addMessage('system', `抱歉，我遇到了一些问题: ${error.message}`);
     }
 }
 
 /**
  * 处理流式消息
  * @param {Object} data - 消息数据
- * @param {string} messageId - 消息DOM元素ID
  * @param {string} analysisProcessId - 分析过程容器ID
  */
-function processStreamingMessage(data, messageId, analysisProcessId) {
+function processStreamingMessage(data, analysisProcessId) {
     const processContainer = document.getElementById(analysisProcessId);
     if (!processContainer) return;
     
+    // 思考过程显示在上方，最终结果显示在下方
     switch (data.type) {
         case 'thinking':
-            // 思考中...消息只显示一次
-            if (!processContainer.querySelector('.thinking-step')) {
-                const thinkingDiv = document.createElement('div');
-                thinkingDiv.className = 'thinking-step';
-                thinkingDiv.innerHTML = `<span class="step-icon">🤔</span> ${data.content}`;
-                processContainer.appendChild(thinkingDiv);
-            }
+            // 思考过程已经通过思考指示器表示，不需要额外处理
             break;
             
         case 'plan':
@@ -412,6 +467,45 @@ function processStreamingMessage(data, messageId, analysisProcessId) {
                     resultPreview.textContent = truncateText(data.content.result.response, 150);
                     expertStepDiv.appendChild(resultPreview);
                 }
+                
+                // 添加可视化预览（如果有且不存在）
+                if (data.content.visualization && !expertStepDiv.querySelector('.visualization-preview')) {
+                    // 创建可视化预览容器
+                    const visualizationPreview = document.createElement('div');
+                    visualizationPreview.className = 'visualization-preview';
+                    
+                    // 创建图像元素
+                    const imgElement = document.createElement('img');
+                    imgElement.className = 'visualization-image';
+                    
+                    // 确保base64字符串格式正确
+                    const imageData = data.content.visualization;
+                    if (!imageData.startsWith('data:image')) {
+                        imgElement.src = `data:image/png;base64,${imageData}`;
+                    } else {
+                        imgElement.src = imageData;
+                    }
+                    
+                    visualizationPreview.appendChild(imgElement);
+                    expertStepDiv.appendChild(visualizationPreview);
+                }
+            }
+            break;
+            
+        case 'final':
+            // 当接收到最终回答时，在分析过程下方添加一个最终结果区域
+            if (!processContainer.querySelector('.final-result')) {
+                const finalResult = document.createElement('div');
+                finalResult.className = 'final-result';
+                finalResult.innerHTML = `
+                    <div class="result-divider"></div>
+                    <div class="result-header">
+                        <span class="result-icon">✅</span>
+                        <strong>分析结果</strong>
+                    </div>
+                    <div class="result-content">${data.content.response}</div>
+                `;
+                processContainer.appendChild(finalResult);
             }
             break;
     }
@@ -486,6 +580,7 @@ function addMessage(role, content) {
     
     const contentElement = document.createElement('div');
     contentElement.className = 'message-content';
+    
     contentElement.textContent = content;
     
     messageElement.appendChild(contentElement);
@@ -816,22 +911,4 @@ async function startNewSession() {
         showError(`创建新会话失败: ${error.message}`);
         newSessionButton.disabled = false;
     }
-}
-
-/**
- * 在消息下面添加分析过程容器
- * @param {string} messageId - 消息ID
- * @param {string} processId - 分析过程容器ID
- */
-function appendAnalysisProcessContainer(messageId, processId) {
-    const messageElement = document.getElementById(messageId);
-    if (!messageElement) return;
-    
-    // 创建分析过程容器
-    const processContainer = document.createElement('div');
-    processContainer.className = 'analysis-process-container';
-    processContainer.id = processId;
-    
-    // 添加到消息元素后面
-    messageElement.appendChild(processContainer);
 } 

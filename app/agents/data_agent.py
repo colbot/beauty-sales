@@ -260,13 +260,29 @@ class DataAgent:
             for response in self.data_assistant.run(messages=messages):
                 if "content" in response[0]:
                     text_response += response[0]["content"]
-                if "tool_calls" in response[0]:
-                    for tool_call in response[0]["tool_calls"]:
-                        if tool_call["type"] == "code_interpreter":
-                            code_output = tool_call.get("output", "")
-                            # 检查是否有可视化输出
-                            if "image/png" in code_output:
-                                visualization = code_output.get("image/png")
+                    
+            # 检查text_response是否包含code_interpreter的输出
+            if "_interpreter" in text_response:
+                # 解析code_interpreter输出
+                # 通常输出格式为包含代码部分和结果部分，需要从text_response中提取
+                code_output_start = text_response.find("```")
+                if code_output_start != -1:
+                    # 尝试提取代码块
+                    code_end = text_response.find("```", code_output_start + 3)
+                    if code_end != -1:
+                        code_output = text_response[code_output_start:code_end + 3]
+                
+                # 检查是否有可视化输出（通常是base64编码的图像）
+                if "image/png" in text_response:
+                    # 提取base64编码的图像数据
+                    img_start = text_response.find("image/png;base64,")
+                    if img_start != -1:
+                        img_start += len("image/png;base64,")
+                        img_end = text_response.find("'", img_start)
+                        if img_end == -1:
+                            img_end = text_response.find('"', img_start)
+                        if img_end != -1:
+                            visualization = text_response[img_start:img_end]
             
             # 记录分析历史
             analysis_record = {
