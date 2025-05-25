@@ -15,6 +15,7 @@ import matplotlib as mpl
 import seaborn as sns
 from qwen_agent.agents import Assistant
 from qwen_agent.tools.base import BaseTool, register_tool
+import traceback
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -240,19 +241,34 @@ class VisualizationAgent:
             
             # 构建系统提示
             system_prompt = """你是一位专业的数据可视化专家，精通美妆销售数据的可视化表达。
-请使用提供的Python代码解释器工具来根据用户需求创建可视化图表。
+请根据用户需求分析数据并生成可视化图表指令。
 
 数据已经加载为名为df的pandas DataFrame，你可以直接使用它。
 
 可视化时请遵循以下原则：
 1. 根据数据特点和用户需求选择最合适的图表类型
-2. 使用matplotlib、seaborn或plotly创建专业且美观的图表
-3. 确保图表清晰易读，包含必要的标题、标签和图例
-4. 针对美妆销售数据设计合适的配色方案和样式
-5. 突出显示关键数据点和趋势
-6. 图表应该传达清晰的业务洞察
+2. 确保图表清晰易读，包含必要的标题、标签和图例
+3. 针对美妆销售数据设计合适的配色方案和样式
+4. 突出显示关键数据点和趋势
+5. 图表应该传达清晰的业务洞察
 
-请先分析数据特点和用户需求，然后编写可视化代码，最后提供简短的图表解释。"""
+请分析数据特点和用户需求，然后生成一个JSON对象，包含以下字段：
+1. "chart_type": 支持的图表类型：line, bar, pie, scatter, heatmap，box，histogram，area
+2. "query": 用户查询或图表主题
+3. "description": 对图表的简短描述
+4. "code": 可选，直接提供Python代码, 若提供则使用自定义代码而非默认模板
+
+###输出样例
+{
+  "chart_type": "line", 
+  "query": "销售趋势分析", 
+  "description": "销售额呈现上升趋势，年底有明显季节性增长", 
+  "code": "df['日期'] = pd.to_datetime(df['日期'])\nplt.figure(figsize=(12, 6))\nplt.plot(df['日期'], df['销售额(万元)'])\nplt.title('销售趋势分析')"
+}
+###
+
+如果你需要更精确控制图表生成，请提供完整的code字段。系统会优先使用你提供的代码而非默认模板。
+如果你不提供code字段，系统会基于chart_type自动生成图表代码。"""
 
             # 获取数据基本信息
             data_info = f"""
@@ -281,17 +297,278 @@ class VisualizationAgent:
             for response in self.visualization_assistant.run(messages=messages):
                 if "content" in response[0]:
                     text_response += response[0]["content"]
-                if "tool_calls" in response[0]:
-                    for tool_call in response[0]["tool_calls"]:
-                        if tool_call["type"] == "code_interpreter":
-                            code_output = tool_call.get("output", "")
-                            # 检查是否有可视化输出
-                            if "image/png" in code_output:
-                                visualization_base64 = code_output.get("image/png")
+                    
+            # 尝试将整个响应解析为JSON
+            try:
+                # 清理文本，移除可能的Markdown代码块标记
+                cleaned_response = text_response.strip()
+                if cleaned_response.startswith("```json"):
+                    cleaned_response = cleaned_response[7:].strip()
+                if cleaned_response.endswith("```"):
+                    cleaned_response = cleaned_response[:-3].strip()
+                
+                # 解析JSON
+                vis_data = json.loads(cleaned_response)
+                logger.info(f"成功解析可视化指令: {vis_data}")
+                
+                # 根据指令执行可视化
+                try:
+                    # 设置安全的执行环境
+                    exec_vars = {'df': df, 'plt': plt, 'sns': sns, 'pd': pd, 'np': np}
+                    
+                    # 检查是否直接提供了代码
+                    if "code" in vis_data and vis_data["code"]:
+                        # 直接使用提供的代码
+                        code = vis_data["code"]
+                        logger.info("使用LLM提供的自定义代码生成可视化")
+                        
+                        # 执行代码生成图表
+                        try:
+                            exec(code, exec_vars)
+                            
+                            # 将图表转换为Base64
+                            buff = io.BytesIO()
+                            plt.savefig(buff, format='png', dpi=100)
+                            plt.close()
+                            buff.seek(0)
+                            # 确保Base64字符串不包含前缀，前端需要添加"data:image/png;base64,"
+                            visualization_base64 = base64.b64encode(buff.read()).decode()
+                            logger.info("成功执行自定义代码生成图表")
+                        except Exception as e:
+                            logger.error(f"执行自定义代码失败: {str(e)}")
+                            traceback.print_exc()
+                            visualization_base64 = None
+                    else:
+                        # 根据图表类型生成相应代码
+                        chart_type_requested = vis_data.get("chart_type", "line")
+                        query_detail = vis_data.get("query", query)
+                        
+                        if chart_type_requested == "line":
+                            plt.figure(figsize=(12, 7))
+                            # 创建折线图
+                            code = """
+                            # 确保日期格式正确
+                            if '日期' in df.columns:
+                                df['日期'] = pd.to_datetime(df['日期'])
+                                # 按日期排序并计算每日总销售额
+                                daily_sales = df.sort_values('日期').groupby('日期')['销售额(万元)'].sum().reset_index()
+                                # 创建30天移动平均线
+                                daily_sales['30天移动平均'] = daily_sales['销售额(万元)'].rolling(window=30).mean()
+                                
+                                # 绘制销售趋势图
+                                sns.lineplot(x='日期', y='销售额(万元)', data=daily_sales, label='日销售额')
+                                sns.lineplot(x='日期', y='30天移动平均', data=daily_sales, label='30天移动平均', linestyle='--')
+                                plt.title('销售趋势分析')
+                                plt.xlabel('日期')
+                                plt.ylabel('销售额（万元）')
+                                plt.legend()
+                                plt.grid(True)
+                                plt.xticks(rotation=45)
+                                plt.tight_layout()
+                            """
+                        elif chart_type_requested == "bar":
+                            plt.figure(figsize=(12, 7))
+                            # 创建柱状图
+                            code = """
+                            # 根据品类统计销售额
+                            if '品类' in df.columns and '销售额(万元)' in df.columns:
+                                category_sales = df.groupby('品类')['销售额(万元)'].sum().sort_values(ascending=False)
+                                sns.barplot(x=category_sales.index, y=category_sales.values)
+                                plt.title('各品类销售额对比')
+                                plt.xlabel('品类')
+                                plt.ylabel('销售额（万元）')
+                                plt.xticks(rotation=45)
+                                plt.tight_layout()
+                            """
+                        elif chart_type_requested == "pie":
+                            plt.figure(figsize=(12, 7))
+                            # 创建饼图
+                            code = """
+                            # 根据品类统计销售额占比
+                            if '品类' in df.columns and '销售额(万元)' in df.columns:
+                                category_sales = df.groupby('品类')['销售额(万元)'].sum()
+                                plt.pie(category_sales, labels=category_sales.index, autopct='%1.1f%%')
+                                plt.title('各品类销售额占比')
+                                plt.axis('equal')
+                            """
+                        elif chart_type_requested == "scatter":
+                            plt.figure(figsize=(12, 7))
+                            # 创建散点图
+                            code = """
+                            # 查找数值列作为散点图的 x 和 y
+                            num_cols = df.select_dtypes(include=['int', 'float']).columns
+                            if len(num_cols) >= 2:
+                                x_col, y_col = num_cols[0], num_cols[1]
+                                # 如果有第三个数值列，用它来决定点的大小
+                                if len(num_cols) >= 3:
+                                    size_col = num_cols[2]
+                                    plt.scatter(df[x_col], df[y_col], s=df[size_col]/df[size_col].mean()*50, alpha=0.6)
+                                else:
+                                    plt.scatter(df[x_col], df[y_col], alpha=0.6)
+                                plt.title(f'{y_col} vs {x_col}')
+                                plt.xlabel(x_col)
+                                plt.ylabel(y_col)
+                                plt.grid(True, linestyle='--', alpha=0.7)
+                                plt.tight_layout()
+                            """
+                        elif chart_type_requested == "heatmap":
+                            plt.figure(figsize=(12, 7))
+                            # 创建热力图
+                            code = """
+                            # 查找分类列和数值列
+                            cat_cols = df.select_dtypes(include=['object']).columns
+                            num_cols = df.select_dtypes(include=['int', 'float']).columns
+                            
+                            if len(cat_cols) >= 2 and len(num_cols) >= 1:
+                                # 使用前两个分类列和第一个数值列创建交叉表
+                                pivot_table = pd.pivot_table(
+                                    df, 
+                                    values=num_cols[0],
+                                    index=cat_cols[0],
+                                    columns=cat_cols[1],
+                                    aggfunc='mean'
+                                )
+                                
+                                # 绘制热力图
+                                plt.figure(figsize=(12, 8))
+                                sns.heatmap(pivot_table, annot=True, cmap='YlGnBu', fmt='.1f')
+                                plt.title(f'{cat_cols[0]} vs {cat_cols[1]} ({num_cols[0]})')
+                                plt.tight_layout()
+                            """
+                        elif chart_type_requested == "box":
+                            plt.figure(figsize=(12, 7))
+                            # 创建箱线图
+                            code = """
+                            # 查找分类列和数值列
+                            cat_cols = df.select_dtypes(include=['object']).columns
+                            num_cols = df.select_dtypes(include=['int', 'float']).columns
+                            
+                            if len(cat_cols) >= 1 and len(num_cols) >= 1:
+                                # 使用第一个分类列和第一个数值列创建箱线图
+                                plt.figure(figsize=(12, 6))
+                                sns.boxplot(x=cat_cols[0], y=num_cols[0], data=df)
+                                plt.title(f'各{cat_cols[0]}的{num_cols[0]}分布')
+                                plt.xlabel(cat_cols[0])
+                                plt.ylabel(num_cols[0])
+                                plt.xticks(rotation=45)
+                                plt.tight_layout()
+                            """
+                        elif chart_type_requested == "histogram":
+                            plt.figure(figsize=(12, 7))
+                            # 创建直方图
+                            code = """
+                            # 查找数值列
+                            num_cols = df.select_dtypes(include=['int', 'float']).columns
+                            
+                            if len(num_cols) >= 1:
+                                # 使用第一个数值列创建直方图
+                                plt.figure(figsize=(10, 6))
+                                sns.histplot(df[num_cols[0]], kde=True)
+                                plt.title(f'{num_cols[0]}分布')
+                                plt.xlabel(num_cols[0])
+                                plt.ylabel('频率')
+                                plt.grid(True, linestyle='--', alpha=0.7)
+                                plt.tight_layout()
+                            """
+                        elif chart_type_requested == "area":
+                            plt.figure(figsize=(12, 7))
+                            # 创建面积图
+                            code = """
+                            # 查找日期列和数值列
+                            date_cols = [col for col in df.columns if 'date' in col.lower() or '日期' in col]
+                            num_cols = df.select_dtypes(include=['int', 'float']).columns
+                            
+                            if len(date_cols) >= 1 and len(num_cols) >= 1:
+                                # 使用日期列和数值列创建面积图
+                                date_col = date_cols[0]
+                                df[date_col] = pd.to_datetime(df[date_col])
+                                
+                                # 按日期分组并计算每日总销售额
+                                grouped_data = df.groupby(date_col)[num_cols[0]].sum().reset_index()
+                                
+                                plt.figure(figsize=(12, 6))
+                                plt.fill_between(grouped_data[date_col], grouped_data[num_cols[0]], alpha=0.5)
+                                plt.plot(grouped_data[date_col], grouped_data[num_cols[0]], linewidth=2)
+                                plt.title(f'{num_cols[0]}趋势')
+                                plt.xlabel(date_col)
+                                plt.ylabel(num_cols[0])
+                                plt.grid(True, linestyle='--', alpha=0.7)
+                                plt.xticks(rotation=45)
+                                plt.tight_layout()
+                            """
+                        else:
+                            plt.figure(figsize=(12, 7))
+                            # 默认创建折线图
+                            code = """
+                            # 默认创建销售趋势图
+                            if '日期' in df.columns and '销售额(万元)' in df.columns:
+                                df['日期'] = pd.to_datetime(df['日期'])
+                                sales_trend = df.groupby('日期')['销售额(万元)'].sum().reset_index()
+                                plt.plot(sales_trend['日期'], sales_trend['销售额(万元)'])
+                                plt.title('销售趋势分析')
+                                plt.xlabel('日期')
+                                plt.ylabel('销售额（万元）')
+                                plt.grid(True)
+                                plt.xticks(rotation=45)
+                                plt.tight_layout()
+                            """
+                        
+                        # 执行代码生成图表
+                        try:
+                            exec(code, exec_vars)
+                            
+                            # 将图表转换为Base64
+                            buff = io.BytesIO()
+                            plt.savefig(buff, format='png', dpi=100)
+                            plt.close()
+                            buff.seek(0)
+                            # 确保Base64字符串不包含前缀，前端需要添加"data:image/png;base64,"
+                            visualization_base64 = base64.b64encode(buff.read()).decode()
+                            
+                            logger.info("成功根据图表类型生成图表")
+                        except Exception as e:
+                            logger.error(f"执行图表生成代码失败: {str(e)}")
+                            traceback.print_exc()
+                            # 错误时visualization_base64保持为None，后续会使用默认图表生成
+                            visualization_base64 = None
+                    
+                except Exception as e:
+                    logger.error(f"处理可视化指令失败: {str(e)}")
+                    traceback.print_exc()
+                    # 错误时visualization_base64保持为None，后续会使用默认图表生成
+                    visualization_base64 = None
+            except Exception as e:
+                logger.error(f"解析JSON响应失败: {str(e)}")
+                traceback.print_exc()
+                # 错误时visualization_base64保持为None，后续会使用默认图表生成
+                visualization_base64 = None
+            
+            # 检查text_response是否包含code_interpreter的输出
+            if not visualization_base64 and "_interpreter" in text_response:
+                # 解析code_interpreter输出
+                # 尝试提取代码块
+                code_output_start = text_response.find("```")
+                if code_output_start != -1:
+                    code_end = text_response.find("```", code_output_start + 3)
+                    if code_end != -1:
+                        code_output = text_response[code_output_start:code_end + 3]
+                
+                # 检查是否有可视化输出（通常是base64编码的图像）
+                if "image/png" in text_response:
+                    # 提取base64编码的图像数据
+                    img_start = text_response.find("image/png;base64,")
+                    if img_start != -1:
+                        img_start += len("image/png;base64,")
+                        img_end = text_response.find("'", img_start)
+                        if img_end == -1:
+                            img_end = text_response.find('"', img_start)
+                        if img_end != -1:
+                            visualization_base64 = text_response[img_start:img_end]
             
             # 如果没有生成可视化，尝试推断并生成一个默认图表
             if not visualization_base64:
                 logger.warning("LLM未生成可视化，使用默认图表生成")
+                logger.debug(f"LLM响应内容: {text_response[:200]}...")  # 输出响应内容前200个字符用于调试
                 visualization_base64 = self._generate_default_chart(df, chart_type)
                 if not visualization_base64:
                     return {
@@ -299,6 +576,8 @@ class VisualizationAgent:
                         "error": "无法生成可视化，数据可能不适合可视化或请求不明确",
                         "visualization": None
                     }
+            else:
+                logger.info("成功从LLM响应中提取可视化图像")
             
             # 生成图表描述
             chart_description = self._generate_chart_description(df, query, text_response)
