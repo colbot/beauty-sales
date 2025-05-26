@@ -114,7 +114,8 @@ async def chat(
         # 加载数据并初始化必要的Agent
         if data_source.file_type == "database":
             # 连接数据库
-            if not main_agent.connect_database(data_source.file_path):
+            db_params = {"path": data_source.file_path}
+            if not main_agent.connect_database(db_params):
                 raise HTTPException(status_code=500, detail="连接数据库失败")
         else:
             # 加载数据文件
@@ -213,7 +214,8 @@ async def create_new_session(
         # 加载数据
         if data_source.file_type == "database":
             # 连接数据库
-            if not main_agent.connect_database(data_source.file_path):
+            db_params = {"path": data_source.file_path}
+            if not main_agent.connect_database(db_params):
                 raise HTTPException(status_code=500, detail="连接数据库失败")
         else:
             # 加载数据文件
@@ -321,7 +323,8 @@ async def stream_chat(
             # 加载数据并初始化必要的Agent
             if data_source.file_type == "database":
                 # 连接数据库
-                if not main_agent.connect_database(data_source.file_path):
+                db_params = {"path": data_source.file_path}
+                if not main_agent.connect_database(db_params):
                     yield json.dumps({"error": "连接数据库失败"}) + "\n"
                     return
             else:

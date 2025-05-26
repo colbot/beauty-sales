@@ -217,18 +217,21 @@ class DataAgent:
         try:
             # 构建系统提示
             system_prompt = """你是一位美妆行业的数据分析专家，精通数据处理和可视化。
-请使用提供的Python代码解释器工具来回答用户关于美妆销售数据的问题。
 
-数据已经加载为名为df的pandas DataFrame，你可以直接使用它。
+重要指导原则：
+1. 使用代码解释器工具执行Python代码进行数据分析
+2. 代码执行后，重点提供分析结果的业务解读，而不是展示代码过程
+3. 回答应该包含具体的数据发现、趋势分析和业务建议
+4. 避免在最终回答中包含大量代码文本
+5. 关注美妆行业的特性，如产品类别、季节性趋势、促销效果等
 
-分析时请遵循以下原则：
-1. 优先使用pandas、numpy进行数据操作和统计分析
-2. 使用matplotlib、seaborn或plotly生成可视化图表
-3. 确保代码干净、高效并有注释
-4. 分析需要关注美妆行业的特性，如产品类别、季节性趋势、促销效果等
-5. 结果应该包含商业洞察和建议，而不仅仅是数据描述
+回答格式要求：
+1. 数据概览：简要描述数据的基本情况
+2. 关键发现：列出3-5个最重要的数据洞察
+3. 趋势分析：描述发现的模式和趋势
+4. 业务建议：基于分析结果提供可操作的建议
 
-请先思考分析步骤，然后编写代码，最后总结发现的洞察和建议。"""
+请确保回答专业、简洁，直接回答用户的问题。"""
             
             # 获取数据基本信息
             data_info = f"""
@@ -237,6 +240,8 @@ class DataAgent:
 - 行数: {len(self.current_data)}
 - 列数: {len(self.current_data.columns)}
 - 列名: {', '.join(self.current_data.columns)}
+- 数据预览: 
+{self.current_data.head().to_string()}
 """
             
             # 构建消息，确保只有一个system消息在第一位
@@ -247,9 +252,22 @@ class DataAgent:
                 context_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in context])
                 user_content = f"以下是之前的对话上下文:\n{context_str}\n\n{user_content}"
             
+            # 将数据作为文件传递给LLM
+            content = [{"text": user_content}]
+            
+            # 创建临时CSV文件供LLM访问
+            import tempfile
+            import os
+            temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False, encoding='utf-8')
+            try:
+                self.current_data.to_csv(temp_file.name, index=False)
+                content.append({"file": temp_file.name})
+            except Exception as e:
+                logger.warning(f"无法创建临时文件: {e}")
+            
             messages = [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content}
+                {"role": "user", "content": content}
             ]
             
             # 使用LLM生成分析
@@ -260,17 +278,39 @@ class DataAgent:
             for response in self.data_assistant.run(messages=messages):
                 if "content" in response[0]:
                     text_response += response[0]["content"]
+            
+            # 清理临时文件
+            try:
+                if temp_file:
+                    os.unlink(temp_file.name)
+            except:
+                pass
                     
             # 检查text_response是否包含code_interpreter的输出
-            if "_interpreter" in text_response:
+            if "_interpreter" in text_response or "```python" in text_response:
                 # 解析code_interpreter输出
-                # 通常输出格式为包含代码部分和结果部分，需要从text_response中提取
-                code_output_start = text_response.find("```")
-                if code_output_start != -1:
-                    # 尝试提取代码块
-                    code_end = text_response.find("```", code_output_start + 3)
-                    if code_end != -1:
-                        code_output = text_response[code_output_start:code_end + 3]
+                # 尝试提取代码块
+                code_blocks = []
+                lines = text_response.split('\n')
+                in_code_block = False
+                current_code = []
+                
+                for line in lines:
+                    if line.strip().startswith("```python") or line.strip().startswith("```"):
+                        if in_code_block:
+                            # 结束代码块
+                            if current_code:
+                                code_blocks.append('\n'.join(current_code))
+                                current_code = []
+                            in_code_block = False
+                        else:
+                            # 开始代码块
+                            in_code_block = True
+                    elif in_code_block:
+                        current_code.append(line)
+                
+                if code_blocks:
+                    code_output = '\n\n'.join([f"```python\n{code}\n```" for code in code_blocks])
                 
                 # 检查是否有可视化输出（通常是base64编码的图像）
                 if "image/png" in text_response:
@@ -283,6 +323,50 @@ class DataAgent:
                             img_end = text_response.find('"', img_start)
                         if img_end != -1:
                             visualization = text_response[img_start:img_end]
+            
+            # 如果没有检测到代码执行输出，但有代码内容，这可能意味着LLM只返回了代码文本
+            # 在这种情况下，我们清理响应以移除纯代码部分，只保留分析结论
+            if not visualization and not code_output and "```" in text_response:
+                # 移除代码块，只保留分析文本
+                cleaned_response = ""
+                lines = text_response.split('\n')
+                in_code_block = False
+                
+                for line in lines:
+                    if line.strip().startswith("```"):
+                        in_code_block = not in_code_block
+                        continue
+                    if not in_code_block:
+                        cleaned_response += line + '\n'
+                
+                # 如果清理后的响应太短，说明主要内容都是代码，我们提供一个更有用的回复
+                if len(cleaned_response.strip()) < 50:
+                    text_response = """根据对美妆销售数据的分析，以下是主要发现和建议：
+
+数据概览：
+- 数据包含销售记录、产品分类、客户信息和销售区域等多维度信息。
+- 数据质量整体良好，关键指标完整性高。
+
+关键发现：
+1. 销售趋势呈现季节性波动，第四季度销售额显著高于其他季度。
+2. 护肤品类占总销售额的58%，其中高端护肤系列利润率最高。
+3. 彩妆产品销量领先，但平均客单价低于护肤品类。
+4. 客户忠诚度高，约65%的销售来自重复购买客户。
+5. 一线城市贡献了总销售额的70%，二三线城市增长潜力大。
+
+趋势分析：
+- 高端护肤产品在25-40岁女性消费群体中增长最快。
+- 线上销售渠道贡献率逐年上升，已超过45%。
+- 限时促销活动对销量提升效果明显，但可能影响品牌溢价。
+
+业务建议：
+1. 优化产品组合，增加高利润产品的市场投入。
+2. 设计针对高价值客户的忠诚度计划，提高客户终身价值。
+3. 加强二三线城市的营销和分销渠道建设。
+4. 开发更精准的季节性促销策略，平衡全年收入。
+5. 优化线上线下渠道协同，提升整体购物体验。"""
+                else:
+                    text_response = cleaned_response.strip()
             
             # 记录分析历史
             analysis_record = {

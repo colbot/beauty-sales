@@ -51,98 +51,141 @@ def setup_chinese_font():
         # 强制使用Agg后端，确保无GUI环境也能生成图表
         plt.switch_backend('Agg')
         
+        # 重置matplotlib配置
+        plt.rcdefaults()
+        
         # 尝试多种方式设置中文字体
         font_set_success = False
+        loaded_font_name = None
         
-        # 方法1：尝试使用系统字体
+        # 方法1：优先检查并使用预下载的字体文件
         try:
-            import platform
-            system = platform.system()
+            # 构建字体文件路径
+            font_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 
+                                   'app', 'static', 'fonts')
+            font_file = os.path.join(font_dir, 'NotoSansCJK-Regular.ttc')
             
-            if system == "Windows":
-                # Windows系统的中文字体
-                fonts_to_try = [
-                    'Microsoft YaHei', 'SimHei', 'KaiTi', 'SimSun', 
-                    'Microsoft JhengHei', 'PMingLiU', 'DFKai-SB'
-                ]
-            elif system == "Darwin":  # macOS
-                # macOS系统的中文字体
-                fonts_to_try = [
-                    'PingFang SC', 'STHeiti', 'STKaiti', 'STSong', 
-                    'Heiti TC', 'Songti TC', 'Apple LiGothic'
-                ]
-            else:  # Linux等
-                # Linux系统的中文字体
-                fonts_to_try = [
-                    'WenQuanYi Zen Hei', 'WenQuanYi Micro Hei', 
-                    'Droid Sans Fallback', 'Noto Sans CJK SC', 
-                    'Source Han Sans CN', 'AR PL UMing CN'
-                ]
+            logger.info(f"检查预下载字体文件: {font_file}")
             
-            # 获取系统中可用的字体
-            available_fonts = set([f.name for f in mpl.font_manager.fontManager.ttflist])
-            
-            # 尝试找到第一个可用的中文字体
-            for font in fonts_to_try:
-                if font in available_fonts:
-                    plt.rcParams['font.sans-serif'] = [font, 'DejaVu Sans', 'sans-serif']
-                    plt.rcParams['axes.unicode_minus'] = False
-                    logger.info(f"成功设置中文字体: {font}")
-                    font_set_success = True
-                    break
-                    
+            # 检查字体文件是否存在
+            if os.path.exists(font_file):
+                logger.info(f"找到预下载的字体文件: {font_file}")
+                
+                # 验证文件大小（字体文件通常较大）
+                file_size = os.path.getsize(font_file)
+                logger.info(f"字体文件大小: {file_size / (1024*1024):.1f} MB")
+                
+                if file_size > 1024 * 1024:  # 至少1MB，确保是完整的字体文件
+                    try:
+                        # 清除现有字体缓存
+                        try:
+                            import matplotlib.font_manager as fm
+                            # 清除字体缓存
+                            fm._load_fontmanager(try_read_cache=False)
+                        except:
+                            pass
+                        
+                        # 添加字体到matplotlib
+                        mpl.font_manager.fontManager.addfont(font_file)
+                        logger.info("字体文件已添加到matplotlib")
+                        
+                        # 获取字体属性
+                        font_prop = mpl.font_manager.FontProperties(fname=font_file)
+                        font_name = font_prop.get_name()
+                        
+                        # 检查字体是否正确加载
+                        available_fonts = [f.name for f in mpl.font_manager.fontManager.ttflist]
+                        logger.info(f"检测到的字体名称: {font_name}")
+                        logger.info(f"字体是否在可用列表中: {font_name in available_fonts}")
+                        
+                        # 设置matplotlib参数 - 使用确切的字体名称
+                        plt.rcParams['font.sans-serif'] = [font_name, 'DejaVu Sans', 'Arial', 'sans-serif']
+                        plt.rcParams['axes.unicode_minus'] = False
+                        plt.rcParams['font.family'] = ['sans-serif']
+                        
+                        # 强制更新字体缓存
+                        plt.rcParams.update(plt.rcParams)
+                        
+                        logger.info(f"成功加载预下载的字体: {font_name}")
+                        loaded_font_name = font_name
+                        font_set_success = True
+                        
+                        # 测试字体是否能正确显示中文
+                        try:
+                            test_fig, test_ax = plt.subplots(figsize=(1, 1))
+                            test_ax.text(0.5, 0.5, '测试中文字体', fontfamily='sans-serif', fontsize=12)
+                            test_ax.text(0.5, 0.3, '美妆销售数据', fontfamily='sans-serif', fontsize=10)
+                            # 测试完成后立即关闭图形
+                            plt.close(test_fig)
+                            logger.info("字体中文显示测试通过")
+                        except Exception as test_error:
+                            logger.warning(f"字体显示测试失败: {test_error}")
+                        
+                    except Exception as font_load_error:
+                        logger.error(f"加载预下载字体时出错: {font_load_error}")
+                        font_set_success = False
+                else:
+                    logger.warning(f"字体文件大小异常，可能不完整: {file_size} bytes")
+            else:
+                logger.info("未找到预下载的字体文件，将尝试其他方法")
+                
         except Exception as e:
-            logger.warning(f"系统字体设置失败: {e}")
+            logger.warning(f"检查预下载字体时出错: {e}")
         
-        # 方法2：如果系统字体失败，尝试下载和使用开源字体
+        # 方法2：如果预下载字体失败，尝试使用系统字体
         if not font_set_success:
             try:
-                font_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 
-                                       'app', 'static', 'fonts')
-                os.makedirs(font_dir, exist_ok=True)
+                import platform
+                system = platform.system()
                 
-                # 设置字体文件路径
-                font_file = os.path.join(font_dir, 'NotoSansCJK-Regular.ttc')
+                logger.info(f"尝试使用系统字体，系统类型: {system}")
                 
-                # 如果字体文件不存在，尝试下载
-                if not os.path.exists(font_file):
-                    logger.info("尝试下载中文字体...")
-                    try:
-                        import urllib.request
-                        # 使用Google Noto字体（开源且支持中文）
-                        font_url = "https://github.com/googlefonts/noto-cjk/raw/main/Sans/OTC/NotoSansCJK-Regular.ttc"
-                        urllib.request.urlretrieve(font_url, font_file)
-                        logger.info(f"成功下载字体到: {font_file}")
-                    except Exception as download_error:
-                        logger.warning(f"下载字体失败: {download_error}")
-                        font_file = None
+                if system == "Windows":
+                    # Windows系统的中文字体
+                    fonts_to_try = [
+                        'Microsoft YaHei', 'SimHei', 'KaiTi', 'SimSun', 
+                        'Microsoft JhengHei', 'PMingLiU', 'DFKai-SB'
+                    ]
+                elif system == "Darwin":  # macOS
+                    # macOS系统的中文字体
+                    fonts_to_try = [
+                        'PingFang SC', 'STHeiti', 'STKaiti', 'STSong', 
+                        'Heiti TC', 'Songti TC', 'Apple LiGothic'
+                    ]
+                else:  # Linux等
+                    # Linux系统的中文字体
+                    fonts_to_try = [
+                        'WenQuanYi Zen Hei', 'WenQuanYi Micro Hei', 
+                        'Droid Sans Fallback', 'Noto Sans CJK SC', 
+                        'Source Han Sans CN', 'AR PL UMing CN'
+                    ]
                 
-                # 如果有字体文件，加载它
-                if font_file and os.path.exists(font_file):
-                    # 添加字体到matplotlib
-                    mpl.font_manager.fontManager.addfont(font_file)
-                    
-                    # 获取字体属性
-                    font_prop = mpl.font_manager.FontProperties(fname=font_file)
-                    font_name = font_prop.get_name()
-                    
-                    # 设置matplotlib参数
-                    plt.rcParams['font.sans-serif'] = [font_name, 'DejaVu Sans', 'sans-serif']
-                    plt.rcParams['axes.unicode_minus'] = False
-                    
-                    logger.info(f"成功加载下载的字体: {font_name}")
-                    font_set_success = True
-                    
+                # 获取系统中可用的字体
+                available_fonts = set([f.name for f in mpl.font_manager.fontManager.ttflist])
+                logger.info(f"系统可用字体数量: {len(available_fonts)}")
+                
+                # 尝试找到第一个可用的中文字体
+                for font in fonts_to_try:
+                    if font in available_fonts:
+                        plt.rcParams['font.sans-serif'] = [font, 'DejaVu Sans', 'sans-serif']
+                        plt.rcParams['axes.unicode_minus'] = False
+                        plt.rcParams['font.family'] = ['sans-serif']
+                        logger.info(f"成功设置系统中文字体: {font}")
+                        loaded_font_name = font
+                        font_set_success = True
+                        break
+                        
             except Exception as e:
-                logger.warning(f"下载字体方案失败: {e}")
+                logger.warning(f"系统字体设置失败: {e}")
         
-        # 方法3：使用内嵌字体替换方案
+        # 方法3：使用文本替换方案作为最后备选
         if not font_set_success:
             logger.warning("所有字体设置方案都失败，使用文本替换方案")
             
             # 设置一个基本字体
             plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial', 'sans-serif']
             plt.rcParams['axes.unicode_minus'] = False
+            plt.rcParams['font.family'] = ['sans-serif']
             
             # 扩展中文到英文的映射
             global font_replace_map
@@ -193,37 +236,18 @@ def setup_chinese_font():
             
             logger.info("已配置完整的中文到英文映射表，包含标点符号、业务术语等，共{}个词汇".format(len(font_replace_map)))
         
-        # 清除matplotlib的字体缓存
-        try:
-            # 尝试不同版本的matplotlib字体缓存重建方法
-            if hasattr(mpl.font_manager, '_rebuild'):
-                mpl.font_manager._rebuild()
-                logger.info("使用_rebuild()方法重建字体缓存")
-            elif hasattr(mpl.font_manager, '_load_fontmanager'):
-                mpl.font_manager._load_fontmanager()
-                logger.info("使用_load_fontmanager()方法重新加载字体管理器")
-            elif hasattr(mpl.font_manager, 'fontManager'):
-                # 尝试重新初始化字体管理器
-                mpl.font_manager.fontManager.__init__()
-                logger.info("重新初始化字体管理器")
-            else:
-                # 如果以上方法都不可用，删除字体缓存文件
-                import tempfile
-                cache_dir = mpl.get_cachedir()
-                fontlist_cache = os.path.join(cache_dir, 'fontlist-v*.json')
-                import glob
-                for cache_file in glob.glob(fontlist_cache):
-                    try:
-                        os.remove(cache_file)
-                        logger.info(f"删除字体缓存文件: {cache_file}")
-                    except Exception as e:
-                        logger.warning(f"删除字体缓存文件失败: {e}")
-                
-                logger.info("通过删除缓存文件重建字体缓存")
-        except Exception as cache_error:
-            logger.warning(f"重建字体缓存失败，但这不会影响基本功能: {cache_error}")
+        # 最终验证并设置全局字体信息
+        if font_set_success:
+            logger.info(f"中文字体配置成功完成，使用字体: {loaded_font_name}")
+            # 保存成功加载的字体名称供后续使用
+            global current_font_name
+            current_font_name = loaded_font_name
+        else:
+            logger.info("中文字体配置完成（使用文本替换方案）")
+            current_font_name = None
         
-        logger.info("中文字体配置完成")
+        # 输出最终的字体配置信息
+        logger.info(f"最终字体配置: {plt.rcParams['font.sans-serif']}")
         
     except Exception as e:
         logger.error(f"配置中文字体时出错: {e}", exc_info=True)
@@ -231,6 +255,7 @@ def setup_chinese_font():
         plt.switch_backend('Agg')
         plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial', 'sans-serif']
         plt.rcParams['axes.unicode_minus'] = False
+        plt.rcParams['font.family'] = ['sans-serif']
 
 
 def apply_chinese_text_replacement(text):
@@ -316,11 +341,20 @@ def ensure_font_before_plot():
     try:
         # 强制设置matplotlib配置
         plt.rcParams['font.family'] = ['sans-serif']
-        plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial', 'Helvetica', 'Liberation Sans', 'sans-serif']
+        
+        # 如果有成功加载的字体，使用它
+        if 'current_font_name' in globals() and current_font_name:
+            plt.rcParams['font.sans-serif'] = [current_font_name, 'DejaVu Sans', 'Arial', 'sans-serif']
+        else:
+            plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial', 'sans-serif']
+        
         plt.rcParams['axes.unicode_minus'] = False
         
         # 设置后端
         plt.switch_backend('Agg')
+        
+        logger.debug(f"图表生成前字体设置: {plt.rcParams['font.sans-serif']}")
+        
     except Exception as e:
         logger.warning(f"字体检查失败: {e}")
 
@@ -328,13 +362,8 @@ def ensure_font_before_plot():
 def safe_generate_chart(code, exec_vars):
     """安全生成图表，确保字体配置正确"""
     try:
-        # 强制设置matplotlib配置
-        plt.rcParams['font.family'] = ['sans-serif']
-        plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial', 'Helvetica', 'Liberation Sans', 'sans-serif']
-        plt.rcParams['axes.unicode_minus'] = False
-        
-        # 设置后端
-        plt.switch_backend('Agg')
+        # 在代码执行前确保字体设置
+        ensure_font_before_plot()
         
         # 预处理代码，处理可能的Period对象问题
         processed_code = code
@@ -359,14 +388,55 @@ pd.Series.dt.to_period = safe_to_period
 """
             processed_code = period_handler + "\n" + code
         
+        # 在代码中添加字体设置
+        font_setup_code = f"""
+# 确保字体设置正确
+import matplotlib.pyplot as plt
+import matplotlib as mpl
+
+plt.switch_backend('Agg')
+plt.rcParams['font.family'] = ['sans-serif']
+"""
+        
+        # 如果有成功加载的字体，添加字体设置
+        if 'current_font_name' in globals() and current_font_name:
+            font_setup_code += f"""
+plt.rcParams['font.sans-serif'] = ['{current_font_name}', 'DejaVu Sans', 'Arial', 'sans-serif']
+"""
+        else:
+            font_setup_code += """
+plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial', 'sans-serif']
+"""
+        
+        font_setup_code += """
+plt.rcParams['axes.unicode_minus'] = False
+
+# 字体替换函数
+def replace_chinese_text(text):
+    if isinstance(text, str):
+        font_replace_map = {
+            '美妆': 'Beauty', '销售': 'Sales', '数据': 'Data', '分析': 'Analysis',
+            '产品': 'Product', '类型': 'Type', '销售额': 'Revenue', '对比': 'Compare',
+            '护肤品': 'Skincare', '彩妆': 'Makeup', '香水': 'Perfume', '面膜': 'Mask',
+            '洁面': 'Cleanser', '万元': '10k CNY', '占比': 'Proportion'
+        }
+        for chinese, english in font_replace_map.items():
+            text = text.replace(chinese, english)
+    return text
+"""
+        
+        # 合并代码
+        final_code = font_setup_code + "\n" + processed_code
+        
         # 执行代码
-        exec(processed_code, exec_vars)
+        exec(final_code, exec_vars)
         
         # 获取当前图形
         current_fig = plt.gcf()
         
-        # 应用完整的文本替换
-        ensure_complete_text_replacement(current_fig)
+        # 应用完整的文本替换（如果字体不支持中文）
+        if not ('current_font_name' in globals() and current_font_name):
+            ensure_complete_text_replacement(current_fig)
         
         # 转换为Base64
         buff = io.BytesIO()
@@ -383,8 +453,9 @@ pd.Series.dt.to_period = safe_to_period
         plt.close('all')  # 清理所有图形
         return None
 
-# 初始化字体替换映射
+# 初始化字体替换映射和当前字体名称
 font_replace_map = {}
+current_font_name = None
 
 # 执行字体设置
 setup_chinese_font()
@@ -532,36 +603,39 @@ class VisualizationAgent:
             
             # 构建系统提示
             system_prompt = """你是一位专业的数据分析师，专注于美妆销售数据分析。
-请使用提供的Python代码解释器工具来回答用户关于美妆销售数据的问题。
 
-数据已经加载为名为df的pandas DataFrame，你可以直接使用它。
+重要指导原则：
+1. 分析用户的可视化需求，确定最合适的图表类型
+2. 生成完整可执行的Python代码进行数据可视化
+3. 提供专业的图表分析和业务洞察
+4. 关注美妆行业的特性，如产品类别、季节性趋势、促销效果等
 
-分析时请遵循以下原则：
-1. 优先使用pandas、numpy进行数据操作和统计分析
-2. 使用matplotlib、seaborn或plotly生成可视化图表
-3. 确保代码干净、高效并有注释
-4. 分析需要关注美妆行业的特性，如产品类别、季节性趋势、促销效果等
-5. 结果应该包含商业洞察和建议，而不仅仅是数据描述
+技术要求：
+- 使用pandas、numpy进行数据操作和统计分析
+- 使用matplotlib、seaborn生成清晰、美观的图表
+- 确保图表标题、轴标签清楚明确
+- 处理日期时间时，避免使用to_period()方法，改用字符串格式化
+- 数据已经加载为名为df的pandas DataFrame，你可以直接使用它
 
-**重要的代码规范：**
-- 处理日期时间时，避免使用to_period()方法，改用字符串格式化或groupby日期
-- 如需按月分组，使用: df.groupby(df['日期'].dt.to_period('M').astype(str))
-- 或者使用: df.groupby(df['日期'].dt.strftime('%Y-%m'))
-- 确保所有数据类型都可以序列化，避免pandas Period对象
-
-请先思考分析步骤，然后编写代码，最后总结发现的洞察和建议。
-
-###输出样例
+输出格式要求：
+你必须严格按照以下JSON格式输出，不要添加任何其他内容：
+```json
 {
-  "chart_type": "line", 
-  "query": "销售趋势分析", 
-  "description": "销售额呈现上升趋势，年底有明显季节性增长", 
-  "code": "# 处理日期数据\ndf['日期'] = pd.to_datetime(df['日期'])\n# 按月分组，使用字符串格式避免Period对象\nmonthly_sales = df.groupby(df['日期'].dt.strftime('%Y-%m'))['销售额(万元)'].sum()\nplt.figure(figsize=(12, 6))\nplt.plot(monthly_sales.index, monthly_sales.values)\nplt.title('Monthly Sales Trend')\nplt.xticks(rotation=45)\nplt.tight_layout()"
+  "chart_type": "图表类型（如line, bar, pie, scatter, heatmap等）",
+  "query": "用户查询的简化版本",
+  "description": "图表的专业分析和业务洞察（2-3句话）",
+  "code": "完整的Python可视化代码（包含数据处理、图表生成、标题设置等）"
 }
-###
+```
 
-如果你需要更精确控制图表生成，请提供完整的code字段。系统会优先使用你提供的代码而非默认模板。
-如果你不提供code字段，系统会基于chart_type自动生成图表代码。"""
+"code"属性里的代码编写要求：
+- 代码必须完整可执行，包含所有必要的数据处理步骤
+- 使用plt.figure(figsize=(12, 6))设置图表大小
+- 确保中文标题和标签的正确显示
+- 使用plt.tight_layout()优化布局
+- 确保代码的完整性和可执行性
+
+请确保输出的JSON格式正确，一定要包含"chart_type"，"query", "description"和"code"属性，可以被Python的json.loads()解析"""
 
             # 获取数据基本信息
             data_info = f"""
@@ -599,6 +673,8 @@ class VisualizationAgent:
                 # 移除Markdown代码块标记
                 if cleaned_response.startswith("```json"):
                     cleaned_response = cleaned_response[7:].strip()
+                elif cleaned_response.startswith("```"):
+                    cleaned_response = cleaned_response[3:].strip()
                 if cleaned_response.endswith("```"):
                     cleaned_response = cleaned_response[:-3].strip()
                 
@@ -938,7 +1014,7 @@ if '日期' in df.columns and '销售额(万元)' in df.columns:
                 
                 # 尝试更激进的JSON提取方法
                 try:
-                    # 如果包含工具调用的其他格式，尝试不同的清理方式
+                    # 尝试逐行查找JSON结构
                     lines = text_response.split('\n')
                     json_lines = []
                     in_json = False
@@ -1027,8 +1103,8 @@ if '日期' in df.columns and '销售额(万元)' in df.columns:
             
             # 如果没有生成可视化，尝试推断并生成一个默认图表
             if not visualization_base64:
-                logger.warning("LLM未生成可视化，使用默认图表生成")
-                logger.debug(f"LLM响应内容: {text_response[:200]}...")  # 输出响应内容前200个字符用于调试
+                logger.warning("LLM为生成自定义图表或JSON解析失败，使用默认图表生成")
+                logger.debug(f"LLM响应内容: {text_response[:200]}...")
                 visualization_base64 = self._generate_default_chart(df, chart_type)
                 if not visualization_base64:
                     return {
@@ -1036,16 +1112,27 @@ if '日期' in df.columns and '销售额(万元)' in df.columns:
                         "error": "无法生成可视化，数据可能不适合可视化或请求不明确",
                         "visualization": None
                     }
+                else:
+                    # 使用默认图表时，提供通用描述
+                    if not chart_description:
+                        chart_description = "基于数据特征生成的默认可视化图表，展示了数据的关键模式和趋势。"
             else:
-                logger.info("成功从LLM响应中提取可视化图像")
+                logger.info("成功从LLM的JSON响应中生成可视化图表")
             
             # 生成图表描述
-            chart_description = self._generate_chart_description(df, query, text_response)
+            chart_description = ""
+            if 'vis_data' in locals() and vis_data and 'description' in vis_data:
+                # 优先使用JSON响应中的description
+                chart_description = vis_data['description']
+                logger.info("使用JSON响应中的description作为图表描述")
+            else:
+                # 如果没有JSON描述，生成默认描述
+                chart_description = self._generate_chart_description(df, query, text_response)
             
             # 记录可视化历史
             visualization_record = {
                 "query": query,
-                "chart_type": chart_type,
+                "chart_type": vis_data.get('chart_type', chart_type) if 'vis_data' in locals() and vis_data else chart_type,
                 "description": chart_description,
                 "timestamp": pd.Timestamp.now().isoformat()
             }
