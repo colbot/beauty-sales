@@ -21,79 +21,441 @@ import traceback
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+def convert_numpy_types(obj):
+    """转换numpy数据类型为Python原生类型，用于JSON序列化"""
+    if isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, pd.Period):
+        return str(obj)
+    elif isinstance(obj, pd.Timestamp):
+        return obj.isoformat()
+    elif isinstance(obj, dict):
+        return {key: convert_numpy_types(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_types(item) for item in obj]
+    else:
+        return obj
+
+def safe_json_dumps(obj, **kwargs):
+    """安全的JSON序列化，自动处理numpy类型"""
+    converted_obj = convert_numpy_types(obj)
+    return json.dumps(converted_obj, **kwargs)
+
 # 配置matplotlib中文字体支持
 def setup_chinese_font():
     try:
         # 强制使用Agg后端，确保无GUI环境也能生成图表
         plt.switch_backend('Agg')
         
-        # 构建与平台无关的路径，直接加载我们的中文字体
-        project_font_path = os.path.abspath(
-            os.path.join(
-                os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 
-                'app', 'static', 'font', 'chinese_font.ttf'
-            )
-        )
+        # 重置matplotlib配置
+        plt.rcdefaults()
         
-        logger.info(f"检查字体文件路径: {project_font_path}")
+        # 尝试多种方式设置中文字体
+        font_set_success = False
+        loaded_font_name = None
         
-        # 检查项目字体是否存在
-        if os.path.exists(project_font_path):
+        # 方法1：优先检查并使用预下载的字体文件
+        try:
+            # 构建字体文件路径
+            font_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 
+                                   'app', 'static', 'fonts')
+            font_file = os.path.join(font_dir, 'NotoSansCJK-Regular.ttc')
+            
+            logger.info(f"检查预下载字体文件: {font_file}")
+            
+            # 检查字体文件是否存在
+            if os.path.exists(font_file):
+                logger.info(f"找到预下载的字体文件: {font_file}")
+                
+                # 验证文件大小（字体文件通常较大）
+                file_size = os.path.getsize(font_file)
+                logger.info(f"字体文件大小: {file_size / (1024*1024):.1f} MB")
+                
+                if file_size > 1024 * 1024:  # 至少1MB，确保是完整的字体文件
+                    try:
+                        # 清除现有字体缓存
+                        try:
+                            import matplotlib.font_manager as fm
+                            # 清除字体缓存
+                            fm._load_fontmanager(try_read_cache=False)
+                        except:
+                            pass
+                        
+                        # 添加字体到matplotlib
+                        mpl.font_manager.fontManager.addfont(font_file)
+                        logger.info("字体文件已添加到matplotlib")
+                        
+                        # 获取字体属性
+                        font_prop = mpl.font_manager.FontProperties(fname=font_file)
+                        font_name = font_prop.get_name()
+                        
+                        # 检查字体是否正确加载
+                        available_fonts = [f.name for f in mpl.font_manager.fontManager.ttflist]
+                        logger.info(f"检测到的字体名称: {font_name}")
+                        logger.info(f"字体是否在可用列表中: {font_name in available_fonts}")
+                        
+                        # 设置matplotlib参数 - 使用确切的字体名称
+                        plt.rcParams['font.sans-serif'] = [font_name, 'DejaVu Sans', 'Arial', 'sans-serif']
+                        plt.rcParams['axes.unicode_minus'] = False
+                        plt.rcParams['font.family'] = ['sans-serif']
+                        
+                        # 强制更新字体缓存
+                        plt.rcParams.update(plt.rcParams)
+                        
+                        logger.info(f"成功加载预下载的字体: {font_name}")
+                        loaded_font_name = font_name
+                        font_set_success = True
+                        
+                        # 测试字体是否能正确显示中文
+                        try:
+                            test_fig, test_ax = plt.subplots(figsize=(1, 1))
+                            test_ax.text(0.5, 0.5, '测试中文字体', fontfamily='sans-serif', fontsize=12)
+                            test_ax.text(0.5, 0.3, '美妆销售数据', fontfamily='sans-serif', fontsize=10)
+                            # 测试完成后立即关闭图形
+                            plt.close(test_fig)
+                            logger.info("字体中文显示测试通过")
+                        except Exception as test_error:
+                            logger.warning(f"字体显示测试失败: {test_error}")
+                        
+                    except Exception as font_load_error:
+                        logger.error(f"加载预下载字体时出错: {font_load_error}")
+                        font_set_success = False
+                else:
+                    logger.warning(f"字体文件大小异常，可能不完整: {file_size} bytes")
+            else:
+                logger.info("未找到预下载的字体文件，将尝试其他方法")
+                
+        except Exception as e:
+            logger.warning(f"检查预下载字体时出错: {e}")
+        
+        # 方法2：如果预下载字体失败，尝试使用系统字体
+        if not font_set_success:
             try:
-                logger.info(f"加载项目目录字体: {project_font_path}")
-                mpl.font_manager.fontManager.addfont(project_font_path)
-                font_prop = mpl.font_manager.FontProperties(fname=project_font_path)
-                font_name = font_prop.get_name()
+                import platform
+                system = platform.system()
                 
-                plt.rcParams['font.sans-serif'] = [font_name, 'SimHei', 'DejaVu Sans', 'Arial Unicode MS', 'sans-serif']
-                plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
+                logger.info(f"尝试使用系统字体，系统类型: {system}")
                 
-                logger.info(f"成功加载中文字体: {font_name}")
-                return  # 字体加载成功，提前返回
+                if system == "Windows":
+                    # Windows系统的中文字体
+                    fonts_to_try = [
+                        'Microsoft YaHei', 'SimHei', 'KaiTi', 'SimSun', 
+                        'Microsoft JhengHei', 'PMingLiU', 'DFKai-SB'
+                    ]
+                elif system == "Darwin":  # macOS
+                    # macOS系统的中文字体
+                    fonts_to_try = [
+                        'PingFang SC', 'STHeiti', 'STKaiti', 'STSong', 
+                        'Heiti TC', 'Songti TC', 'Apple LiGothic'
+                    ]
+                else:  # Linux等
+                    # Linux系统的中文字体
+                    fonts_to_try = [
+                        'WenQuanYi Zen Hei', 'WenQuanYi Micro Hei', 
+                        'Droid Sans Fallback', 'Noto Sans CJK SC', 
+                        'Source Han Sans CN', 'AR PL UMing CN'
+                    ]
+                
+                # 获取系统中可用的字体
+                available_fonts = set([f.name for f in mpl.font_manager.fontManager.ttflist])
+                logger.info(f"系统可用字体数量: {len(available_fonts)}")
+                
+                # 尝试找到第一个可用的中文字体
+                for font in fonts_to_try:
+                    if font in available_fonts:
+                        plt.rcParams['font.sans-serif'] = [font, 'DejaVu Sans', 'sans-serif']
+                        plt.rcParams['axes.unicode_minus'] = False
+                        plt.rcParams['font.family'] = ['sans-serif']
+                        logger.info(f"成功设置系统中文字体: {font}")
+                        loaded_font_name = font
+                        font_set_success = True
+                        break
+                        
             except Exception as e:
-                logger.warning(f"加载中文字体失败: {e}")
+                logger.warning(f"系统字体设置失败: {e}")
+        
+        # 方法3：使用文本替换方案作为最后备选
+        if not font_set_success:
+            logger.warning("所有字体设置方案都失败，使用文本替换方案")
+            
+            # 设置一个基本字体
+            plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial', 'sans-serif']
+            plt.rcParams['axes.unicode_minus'] = False
+            plt.rcParams['font.family'] = ['sans-serif']
+            
+            # 扩展中文到英文的映射
+            global font_replace_map
+            font_replace_map = {
+                # 通用词汇
+                '用户': 'User', '客户': 'Customer', '销售': 'Sales', '销售额': 'Revenue',
+                '数量': 'Quantity', '分类': 'Category', '品类': 'Category', 
+                '价格': 'Price', '时间': 'Time', '日期': 'Date', '月份': 'Month',
+                '产品': 'Product', '品牌': 'Brand', '渠道': 'Channel',
+                '分布': 'Distribution', '统计': 'Statistics', '分析': 'Analysis',
+                '美妆': 'Beauty', '区域': 'Region', '地区': 'Region',
+                '订单': 'Order', '总计': 'Total', '合计': 'Total',
+                
+                # 业务专用词汇
+                '护肤': 'Skincare', '彩妆': 'Makeup', '香水': 'Perfume',
+                '洁面': 'Cleanser', '精华': 'Serum', '面霜': 'Cream',
+                '口红': 'Lipstick', '眼影': 'Eyeshadow', '粉底': 'Foundation',
+                '面膜': 'Mask', '乳液': 'Lotion', '爽肤水': 'Toner',
+                
+                # 单位和符号
+                '万元': '10k CNY', '元': 'CNY', '件': 'pcs', '个': 'pcs',
+                '天': 'days', '月': 'months', '年': 'years',
+                '百分比': 'Percentage', '比例': 'Ratio', '占比': 'Proportion',
+                
+                # 数据分析和图表相关
+                '数据': 'Data', '图表': 'Chart', '报告': 'Report', '指标': 'Metric',
+                '展示': 'Display', '对比': 'Compare', '变化': 'Change',
+                '趋势': 'Trend', '增长': 'Growth', '下降': 'Decline', '稳定': 'Stable',
+                '波动': 'Fluctuation', '季节性': 'Seasonal',
+                
+                # 图表类型
+                '趋势图': 'Trend Chart', '柱状图': 'Bar Chart', 
+                '折线图': 'Line Chart', '饼图': 'Pie Chart',
+                '散点图': 'Scatter Plot', '热力图': 'Heatmap',
+                
+                # 时间和统计词汇
+                '销售趋势': 'Sales Trend', '每日': 'Daily', '每月': 'Monthly',
+                '季度': 'Quarterly', '年度': 'Annual',
+                '平均': 'Average', '最大': 'Max', '最小': 'Min',
+                '中位数': 'Median', '标准差': 'StdDev',
+                
+                # 标点符号和常见字符
+                '（': '(', '）': ')', '，': ',', '。': '.', '：': ':',
+                '；': ';', '？': '?', '！': '!', '—': '-', '…': '...',
+                '、': ',', '〈': '<', '〉': '>', '《': '<', '》': '>',
+                '"': '"', '"': '"', ''': "'", ''': "'"
+            }
+            
+            logger.info("已配置完整的中文到英文映射表，包含标点符号、业务术语等，共{}个词汇".format(len(font_replace_map)))
+        
+        # 最终验证并设置全局字体信息
+        if font_set_success:
+            logger.info(f"中文字体配置成功完成，使用字体: {loaded_font_name}")
+            # 保存成功加载的字体名称供后续使用
+            global current_font_name
+            current_font_name = loaded_font_name
         else:
-            logger.warning(f"中文字体文件不存在: {project_font_path}")
+            logger.info("中文字体配置完成（使用文本替换方案）")
+            current_font_name = None
         
-        # 如果项目字体未找到或加载失败，使用备用策略
-        logger.warning("未找到或无法加载中文字体，启用备用方案")
-        plt.rcParams['font.sans-serif'] = ['SimHei', 'DejaVu Sans', 'Arial Unicode MS', 'sans-serif']
-        plt.rcParams['axes.unicode_minus'] = False
+        # 输出最终的字体配置信息
+        logger.info(f"最终字体配置: {plt.rcParams['font.sans-serif']}")
         
-        # 将某些常用中文替换为英文，避免乱码
-        global font_replace_map
-        font_replace_map = {
-            '用户': 'User',
-            '评分': 'Rating',
-            '销售额': 'Sales',
-            '数量': 'Quantity',
-            '分类': 'Category',
-            '价格': 'Price',
-            '时间': 'Time',
-            '日期': 'Date',
-            '产品': 'Product',
-            '品牌': 'Brand',
-            '渠道': 'Channel',
-            '分布': 'Distribution',
-            '统计': 'Statistics',
-            '月份': 'Month',
-            '分析': 'Analysis',
-            '美妆': 'Beauty',
-            '区域': 'Region',
-            '客户': 'Customer',
-            '订单': 'Order',
-            '总计': 'Total'
-        }
-        
-        # 记录字体映射，供后续使用
-        logger.info("已配置中文到英文的映射以避免字体问题")
     except Exception as e:
         logger.error(f"配置中文字体时出错: {e}", exc_info=True)
-        # 确保我们有一个基本可用的后端
+        # 确保我们有一个基本可用的配置
         plt.switch_backend('Agg')
+        plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial', 'sans-serif']
+        plt.rcParams['axes.unicode_minus'] = False
+        plt.rcParams['font.family'] = ['sans-serif']
 
-# 初始化字体替换映射
+
+def apply_chinese_text_replacement(text):
+    """应用中文文本替换"""
+    if isinstance(text, str) and font_replace_map:
+        for chinese, english in font_replace_map.items():
+            text = text.replace(chinese, english)
+    
+    return text
+
+
+def ensure_complete_text_replacement(fig):
+    """确保图表中的所有文本都被正确替换"""
+    try:
+        # 处理主标题
+        if fig._suptitle:
+            title_text = fig._suptitle.get_text()
+            new_title = apply_chinese_text_replacement(title_text)
+            fig.suptitle(new_title, fontfamily='sans-serif')
+        
+        # 处理所有子图
+        for ax in fig.get_axes():
+            # 处理子图标题
+            if ax.get_title():
+                title = apply_chinese_text_replacement(ax.get_title())
+                ax.set_title(title, fontfamily='sans-serif')
+            
+            # 处理X轴标签
+            if ax.get_xlabel():
+                xlabel = apply_chinese_text_replacement(ax.get_xlabel())
+                ax.set_xlabel(xlabel, fontfamily='sans-serif')
+            
+            # 处理Y轴标签
+            if ax.get_ylabel():
+                ylabel = apply_chinese_text_replacement(ax.get_ylabel())
+                ax.set_ylabel(ylabel, fontfamily='sans-serif')
+            
+            # 安全处理X轴刻度标签
+            try:
+                current_xticks = ax.get_xticks()
+                x_tick_labels = [apply_chinese_text_replacement(str(label.get_text())) 
+                               for label in ax.get_xticklabels()]
+                if x_tick_labels and len(x_tick_labels) == len(current_xticks):
+                    ax.set_xticks(current_xticks)
+                    ax.set_xticklabels(x_tick_labels, fontfamily='sans-serif')
+            except Exception as e:
+                logger.warning(f"处理X轴刻度标签时发生错误: {e}")
+            
+            # 安全处理Y轴刻度标签
+            try:
+                current_yticks = ax.get_yticks()
+                y_tick_labels = [apply_chinese_text_replacement(str(label.get_text())) 
+                               for label in ax.get_yticklabels()]
+                if y_tick_labels and len(y_tick_labels) == len(current_yticks):
+                    ax.set_yticks(current_yticks)
+                    ax.set_yticklabels(y_tick_labels, fontfamily='sans-serif')
+            except Exception as e:
+                logger.warning(f"处理Y轴刻度标签时发生错误: {e}")
+            
+            # 处理图例
+            legend = ax.get_legend()
+            if legend:
+                new_labels = [apply_chinese_text_replacement(label.get_text()) 
+                             for label in legend.get_texts()]
+                ax.legend(labels=new_labels, prop={'family': 'sans-serif'})
+            
+            # 处理文本注释
+            for text in ax.texts:
+                try:
+                    original_text = text.get_text()
+                    new_text = apply_chinese_text_replacement(original_text)
+                    text.set_text(new_text)
+                    text.set_fontfamily('sans-serif')
+                except Exception as e:
+                    logger.warning(f"处理文本注释时发生错误: {e}")
+    
+    except Exception as e:
+        logger.warning(f"文本替换过程中发生错误: {e}")
+
+
+def ensure_font_before_plot():
+    """在生成图表前确保字体设置正确"""
+    try:
+        # 强制设置matplotlib配置
+        plt.rcParams['font.family'] = ['sans-serif']
+        
+        # 如果有成功加载的字体，使用它
+        if 'current_font_name' in globals() and current_font_name:
+            plt.rcParams['font.sans-serif'] = [current_font_name, 'DejaVu Sans', 'Arial', 'sans-serif']
+        else:
+            plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial', 'sans-serif']
+        
+        plt.rcParams['axes.unicode_minus'] = False
+        
+        # 设置后端
+        plt.switch_backend('Agg')
+        
+        logger.debug(f"图表生成前字体设置: {plt.rcParams['font.sans-serif']}")
+        
+    except Exception as e:
+        logger.warning(f"字体检查失败: {e}")
+
+
+def safe_generate_chart(code, exec_vars):
+    """安全生成图表，确保字体配置正确"""
+    try:
+        # 在代码执行前确保字体设置
+        ensure_font_before_plot()
+        
+        # 预处理代码，处理可能的Period对象问题
+        processed_code = code
+        
+        # 如果代码中包含Period操作，添加转换处理
+        if 'to_period' in code:
+            # 在代码前添加Period处理函数
+            period_handler = """
+def safe_period_to_string(period_series):
+    \"\"\"安全地将Period序列转换为字符串\"\"\"
+    return period_series.astype(str)
+
+# 重写原始代码中的Period处理
+import pandas as pd
+original_to_period = pd.Series.dt.to_period
+
+def safe_to_period(self, freq=None):
+    result = original_to_period(self, freq)
+    return result.astype(str)  # 立即转换为字符串避免序列化问题
+
+pd.Series.dt.to_period = safe_to_period
+"""
+            processed_code = period_handler + "\n" + code
+        
+        # 在代码中添加字体设置
+        font_setup_code = f"""
+# 确保字体设置正确
+import matplotlib.pyplot as plt
+import matplotlib as mpl
+
+plt.switch_backend('Agg')
+plt.rcParams['font.family'] = ['sans-serif']
+"""
+        
+        # 如果有成功加载的字体，添加字体设置
+        if 'current_font_name' in globals() and current_font_name:
+            font_setup_code += f"""
+plt.rcParams['font.sans-serif'] = ['{current_font_name}', 'DejaVu Sans', 'Arial', 'sans-serif']
+"""
+        else:
+            font_setup_code += """
+plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial', 'sans-serif']
+"""
+        
+        font_setup_code += """
+plt.rcParams['axes.unicode_minus'] = False
+
+# 字体替换函数
+def replace_chinese_text(text):
+    if isinstance(text, str):
+        font_replace_map = {
+            '美妆': 'Beauty', '销售': 'Sales', '数据': 'Data', '分析': 'Analysis',
+            '产品': 'Product', '类型': 'Type', '销售额': 'Revenue', '对比': 'Compare',
+            '护肤品': 'Skincare', '彩妆': 'Makeup', '香水': 'Perfume', '面膜': 'Mask',
+            '洁面': 'Cleanser', '万元': '10k CNY', '占比': 'Proportion'
+        }
+        for chinese, english in font_replace_map.items():
+            text = text.replace(chinese, english)
+    return text
+"""
+        
+        # 合并代码
+        final_code = font_setup_code + "\n" + processed_code
+        
+        # 执行代码
+        exec(final_code, exec_vars)
+        
+        # 获取当前图形
+        current_fig = plt.gcf()
+        
+        # 应用完整的文本替换（如果字体不支持中文）
+        if not ('current_font_name' in globals() and current_font_name):
+            ensure_complete_text_replacement(current_fig)
+        
+        # 转换为Base64
+        buff = io.BytesIO()
+        current_fig.savefig(buff, format='png', dpi=100, bbox_inches='tight', 
+                           facecolor='white', edgecolor='none')
+        plt.close(current_fig)
+        buff.seek(0)
+        
+        return base64.b64encode(buff.read()).decode()
+        
+    except Exception as e:
+        logger.error(f"图表生成过程中发生错误: {e}")
+        logger.debug(f"执行的代码: {code[:200]}...")  # 只输出前200个字符避免日志过长
+        plt.close('all')  # 清理所有图形
+        return None
+
+# 初始化字体替换映射和当前字体名称
 font_replace_map = {}
+current_font_name = None
 
 # 执行字体设置
 setup_chinese_font()
@@ -130,7 +492,7 @@ class GenerateVisualizationTool(BaseTool):
             chart_type = params_dict.get('chart_type')
             
             if not self.visualization_agent.current_data is not None:
-                return json.dumps({
+                return safe_json_dumps({
                     "success": False,
                     "error": "没有可用的数据进行可视化"
                 }, ensure_ascii=False)
@@ -141,11 +503,11 @@ class GenerateVisualizationTool(BaseTool):
                 chart_type
             )
             
-            # 返回结果的JSON字符串
-            return json.dumps(result, ensure_ascii=False)
+            # 返回结果的JSON字符串，使用安全序列化
+            return safe_json_dumps(result, ensure_ascii=False)
         except Exception as e:
             logger.error(f"生成可视化错误: {e}")
-            return json.dumps({
+            return safe_json_dumps({
                 "success": False,
                 "error": str(e)
             }, ensure_ascii=False)
@@ -240,35 +602,40 @@ class VisualizationAgent:
             self.current_data = df
             
             # 构建系统提示
-            system_prompt = """你是一位专业的数据可视化专家，精通美妆销售数据的可视化表达。
-请根据用户需求分析数据并生成可视化图表指令。
+            system_prompt = """你是一位专业的数据分析师，专注于美妆销售数据分析。
 
-数据已经加载为名为df的pandas DataFrame，你可以直接使用它。
+重要指导原则：
+1. 分析用户的可视化需求，确定最合适的图表类型
+2. 生成完整可执行的Python代码进行数据可视化
+3. 提供专业的图表分析和业务洞察
+4. 关注美妆行业的特性，如产品类别、季节性趋势、促销效果等
 
-可视化时请遵循以下原则：
-1. 根据数据特点和用户需求选择最合适的图表类型
-2. 确保图表清晰易读，包含必要的标题、标签和图例
-3. 针对美妆销售数据设计合适的配色方案和样式
-4. 突出显示关键数据点和趋势
-5. 图表应该传达清晰的业务洞察
+技术要求：
+- 使用pandas、numpy进行数据操作和统计分析
+- 使用matplotlib、seaborn生成清晰、美观的图表
+- 确保图表标题、轴标签清楚明确
+- 处理日期时间时，避免使用to_period()方法，改用字符串格式化
+- 数据已经加载为名为df的pandas DataFrame，你可以直接使用它
 
-请分析数据特点和用户需求，然后生成一个JSON对象，包含以下字段：
-1. "chart_type": 支持的图表类型：line, bar, pie, scatter, heatmap，box，histogram，area
-2. "query": 用户查询或图表主题
-3. "description": 对图表的简短描述
-4. "code": 可选，直接提供Python代码, 若提供则使用自定义代码而非默认模板
-
-###输出样例
+输出格式要求：
+你必须严格按照以下JSON格式输出，不要添加任何其他内容：
+```json
 {
-  "chart_type": "line", 
-  "query": "销售趋势分析", 
-  "description": "销售额呈现上升趋势，年底有明显季节性增长", 
-  "code": "df['日期'] = pd.to_datetime(df['日期'])\nplt.figure(figsize=(12, 6))\nplt.plot(df['日期'], df['销售额(万元)'])\nplt.title('销售趋势分析')"
+  "chart_type": "图表类型（如line, bar, pie, scatter, heatmap等）",
+  "query": "用户查询的简化版本",
+  "description": "图表的专业分析和业务洞察（2-3句话）",
+  "code": "完整的Python可视化代码（包含数据处理、图表生成、标题设置等）"
 }
-###
+```
 
-如果你需要更精确控制图表生成，请提供完整的code字段。系统会优先使用你提供的代码而非默认模板。
-如果你不提供code字段，系统会基于chart_type自动生成图表代码。"""
+"code"属性里的代码编写要求：
+- 代码必须完整可执行，包含所有必要的数据处理步骤
+- 使用plt.figure(figsize=(12, 6))设置图表大小
+- 确保中文标题和标签的正确显示
+- 使用plt.tight_layout()优化布局
+- 确保代码的完整性和可执行性
+
+请确保输出的JSON格式正确，一定要包含"chart_type"，"query", "description"和"code"属性，可以被Python的json.loads()解析"""
 
             # 获取数据基本信息
             data_info = f"""
@@ -300,12 +667,37 @@ class VisualizationAgent:
                     
             # 尝试将整个响应解析为JSON
             try:
-                # 清理文本，移除可能的Markdown代码块标记
+                # 清理文本，移除可能的Markdown代码块标记和工具调用标识符
                 cleaned_response = text_response.strip()
+                
+                # 移除Markdown代码块标记
                 if cleaned_response.startswith("```json"):
                     cleaned_response = cleaned_response[7:].strip()
+                elif cleaned_response.startswith("```"):
+                    cleaned_response = cleaned_response[3:].strip()
                 if cleaned_response.endswith("```"):
                     cleaned_response = cleaned_response[:-3].strip()
+                
+                # 移除工具调用标识符（如 _visualization✿ARGS✿: \n）
+                if "✿ARGS✿:" in cleaned_response:
+                    # 查找工具调用标识符的位置
+                    args_pos = cleaned_response.find("✿ARGS✿:")
+                    if args_pos != -1:
+                        # 找到标识符后面的换行符或冒号位置
+                        start_pos = args_pos + len("✿ARGS✿:")
+                        # 跳过可能的空白字符和换行符
+                        while start_pos < len(cleaned_response) and cleaned_response[start_pos] in [' ', '\n', '\t', ':']:
+                            start_pos += 1
+                        cleaned_response = cleaned_response[start_pos:].strip()
+                
+                # 尝试查找JSON对象的开始和结束位置
+                json_start = cleaned_response.find('{')
+                json_end = cleaned_response.rfind('}')
+                
+                if json_start != -1 and json_end != -1 and json_end > json_start:
+                    # 提取JSON部分
+                    json_part = cleaned_response[json_start:json_end+1]
+                    cleaned_response = json_part.strip()
                 
                 # 解析JSON
                 vis_data = json.loads(cleaned_response)
@@ -324,16 +716,14 @@ class VisualizationAgent:
                         
                         # 执行代码生成图表
                         try:
-                            exec(code, exec_vars)
+                            # 使用安全的图表生成函数
+                            visualization_base64 = safe_generate_chart(code, exec_vars)
                             
-                            # 将图表转换为Base64
-                            buff = io.BytesIO()
-                            plt.savefig(buff, format='png', dpi=100)
-                            plt.close()
-                            buff.seek(0)
-                            # 确保Base64字符串不包含前缀，前端需要添加"data:image/png;base64,"
-                            visualization_base64 = base64.b64encode(buff.read()).decode()
-                            logger.info("成功执行自定义代码生成图表")
+                            if visualization_base64:
+                                logger.info("成功使用自定义代码生成图表")
+                            else:
+                                logger.error("使用自定义代码生成图表失败")
+                                visualization_base64 = None
                         except Exception as e:
                             logger.error(f"执行自定义代码失败: {str(e)}")
                             traceback.print_exc()
@@ -343,194 +733,274 @@ class VisualizationAgent:
                         chart_type_requested = vis_data.get("chart_type", "line")
                         query_detail = vis_data.get("query", query)
                         
-                        if chart_type_requested == "line":
-                            plt.figure(figsize=(12, 7))
-                            # 创建折线图
-                            code = """
-                            # 确保日期格式正确
-                            if '日期' in df.columns:
-                                df['日期'] = pd.to_datetime(df['日期'])
-                                # 按日期排序并计算每日总销售额
-                                daily_sales = df.sort_values('日期').groupby('日期')['销售额(万元)'].sum().reset_index()
-                                # 创建30天移动平均线
-                                daily_sales['30天移动平均'] = daily_sales['销售额(万元)'].rolling(window=30).mean()
-                                
-                                # 绘制销售趋势图
-                                sns.lineplot(x='日期', y='销售额(万元)', data=daily_sales, label='日销售额')
-                                sns.lineplot(x='日期', y='30天移动平均', data=daily_sales, label='30天移动平均', linestyle='--')
-                                plt.title('销售趋势分析')
-                                plt.xlabel('日期')
-                                plt.ylabel('销售额（万元）')
-                                plt.legend()
-                                plt.grid(True)
-                                plt.xticks(rotation=45)
-                                plt.tight_layout()
-                            """
-                        elif chart_type_requested == "bar":
-                            plt.figure(figsize=(12, 7))
-                            # 创建柱状图
-                            code = """
-                            # 根据品类统计销售额
-                            if '品类' in df.columns and '销售额(万元)' in df.columns:
-                                category_sales = df.groupby('品类')['销售额(万元)'].sum().sort_values(ascending=False)
-                                sns.barplot(x=category_sales.index, y=category_sales.values)
-                                plt.title('各品类销售额对比')
-                                plt.xlabel('品类')
-                                plt.ylabel('销售额（万元）')
-                                plt.xticks(rotation=45)
-                                plt.tight_layout()
-                            """
-                        elif chart_type_requested == "pie":
-                            plt.figure(figsize=(12, 7))
-                            # 创建饼图
-                            code = """
-                            # 根据品类统计销售额占比
-                            if '品类' in df.columns and '销售额(万元)' in df.columns:
-                                category_sales = df.groupby('品类')['销售额(万元)'].sum()
-                                plt.pie(category_sales, labels=category_sales.index, autopct='%1.1f%%')
-                                plt.title('各品类销售额占比')
-                                plt.axis('equal')
-                            """
-                        elif chart_type_requested == "scatter":
-                            plt.figure(figsize=(12, 7))
-                            # 创建散点图
-                            code = """
-                            # 查找数值列作为散点图的 x 和 y
-                            num_cols = df.select_dtypes(include=['int', 'float']).columns
-                            if len(num_cols) >= 2:
-                                x_col, y_col = num_cols[0], num_cols[1]
-                                # 如果有第三个数值列，用它来决定点的大小
-                                if len(num_cols) >= 3:
-                                    size_col = num_cols[2]
-                                    plt.scatter(df[x_col], df[y_col], s=df[size_col]/df[size_col].mean()*50, alpha=0.6)
-                                else:
-                                    plt.scatter(df[x_col], df[y_col], alpha=0.6)
-                                plt.title(f'{y_col} vs {x_col}')
-                                plt.xlabel(x_col)
-                                plt.ylabel(y_col)
-                                plt.grid(True, linestyle='--', alpha=0.7)
-                                plt.tight_layout()
-                            """
-                        elif chart_type_requested == "heatmap":
-                            plt.figure(figsize=(12, 7))
-                            # 创建热力图
-                            code = """
-                            # 查找分类列和数值列
-                            cat_cols = df.select_dtypes(include=['object']).columns
-                            num_cols = df.select_dtypes(include=['int', 'float']).columns
+                        # 检查query本身是否包含Python代码
+                        def contains_python_code(text):
+                            """检查文本是否包含Python代码"""
+                            python_keywords = ['import ', 'def ', 'if ', 'for ', 'while ', 'plt.', 'df.', 'sns.', 'pd.', 'np.']
+                            code_indicators = ['```python', '```', 'plt.figure', 'matplotlib', 'seaborn']
+                            text_lower = text.lower()
                             
-                            if len(cat_cols) >= 2 and len(num_cols) >= 1:
-                                # 使用前两个分类列和第一个数值列创建交叉表
-                                pivot_table = pd.pivot_table(
-                                    df, 
-                                    values=num_cols[0],
-                                    index=cat_cols[0],
-                                    columns=cat_cols[1],
-                                    aggfunc='mean'
-                                )
-                                
-                                # 绘制热力图
-                                plt.figure(figsize=(12, 8))
-                                sns.heatmap(pivot_table, annot=True, cmap='YlGnBu', fmt='.1f')
-                                plt.title(f'{cat_cols[0]} vs {cat_cols[1]} ({num_cols[0]})')
-                                plt.tight_layout()
-                            """
-                        elif chart_type_requested == "box":
-                            plt.figure(figsize=(12, 7))
-                            # 创建箱线图
-                            code = """
-                            # 查找分类列和数值列
-                            cat_cols = df.select_dtypes(include=['object']).columns
-                            num_cols = df.select_dtypes(include=['int', 'float']).columns
+                            # 检查Python关键字
+                            keyword_count = sum(1 for keyword in python_keywords if keyword in text_lower)
+                            # 检查代码块标识
+                            has_code_indicators = any(indicator in text_lower for indicator in code_indicators)
                             
-                            if len(cat_cols) >= 1 and len(num_cols) >= 1:
-                                # 使用第一个分类列和第一个数值列创建箱线图
-                                plt.figure(figsize=(12, 6))
-                                sns.boxplot(x=cat_cols[0], y=num_cols[0], data=df)
-                                plt.title(f'各{cat_cols[0]}的{num_cols[0]}分布')
-                                plt.xlabel(cat_cols[0])
-                                plt.ylabel(num_cols[0])
-                                plt.xticks(rotation=45)
-                                plt.tight_layout()
-                            """
-                        elif chart_type_requested == "histogram":
-                            plt.figure(figsize=(12, 7))
-                            # 创建直方图
-                            code = """
-                            # 查找数值列
-                            num_cols = df.select_dtypes(include=['int', 'float']).columns
-                            
-                            if len(num_cols) >= 1:
-                                # 使用第一个数值列创建直方图
-                                plt.figure(figsize=(10, 6))
-                                sns.histplot(df[num_cols[0]], kde=True)
-                                plt.title(f'{num_cols[0]}分布')
-                                plt.xlabel(num_cols[0])
-                                plt.ylabel('频率')
-                                plt.grid(True, linestyle='--', alpha=0.7)
-                                plt.tight_layout()
-                            """
-                        elif chart_type_requested == "area":
-                            plt.figure(figsize=(12, 7))
-                            # 创建面积图
-                            code = """
-                            # 查找日期列和数值列
-                            date_cols = [col for col in df.columns if 'date' in col.lower() or '日期' in col]
-                            num_cols = df.select_dtypes(include=['int', 'float']).columns
-                            
-                            if len(date_cols) >= 1 and len(num_cols) >= 1:
-                                # 使用日期列和数值列创建面积图
-                                date_col = date_cols[0]
-                                df[date_col] = pd.to_datetime(df[date_col])
-                                
-                                # 按日期分组并计算每日总销售额
-                                grouped_data = df.groupby(date_col)[num_cols[0]].sum().reset_index()
-                                
-                                plt.figure(figsize=(12, 6))
-                                plt.fill_between(grouped_data[date_col], grouped_data[num_cols[0]], alpha=0.5)
-                                plt.plot(grouped_data[date_col], grouped_data[num_cols[0]], linewidth=2)
-                                plt.title(f'{num_cols[0]}趋势')
-                                plt.xlabel(date_col)
-                                plt.ylabel(num_cols[0])
-                                plt.grid(True, linestyle='--', alpha=0.7)
-                                plt.xticks(rotation=45)
-                                plt.tight_layout()
-                            """
-                        else:
-                            plt.figure(figsize=(12, 7))
-                            # 默认创建折线图
-                            code = """
-                            # 默认创建销售趋势图
-                            if '日期' in df.columns and '销售额(万元)' in df.columns:
-                                df['日期'] = pd.to_datetime(df['日期'])
-                                sales_trend = df.groupby('日期')['销售额(万元)'].sum().reset_index()
-                                plt.plot(sales_trend['日期'], sales_trend['销售额(万元)'])
-                                plt.title('销售趋势分析')
-                                plt.xlabel('日期')
-                                plt.ylabel('销售额（万元）')
-                                plt.grid(True)
-                                plt.xticks(rotation=45)
-                                plt.tight_layout()
-                            """
+                            # 如果有多个Python关键字或明确的代码标识，认为包含代码
+                            return keyword_count >= 2 or has_code_indicators
                         
-                        # 执行代码生成图表
-                        try:
-                            exec(code, exec_vars)
+                        # 如果query包含Python代码，尝试提取并使用
+                        if contains_python_code(query_detail):
+                            logger.info("检测到query中包含Python代码，尝试提取并使用")
                             
-                            # 将图表转换为Base64
-                            buff = io.BytesIO()
-                            plt.savefig(buff, format='png', dpi=100)
-                            plt.close()
-                            buff.seek(0)
-                            # 确保Base64字符串不包含前缀，前端需要添加"data:image/png;base64,"
-                            visualization_base64 = base64.b64encode(buff.read()).decode()
+                            # 提取代码块
+                            extracted_code = None
+                            if "```python" in query_detail:
+                                # 提取Python代码块
+                                start = query_detail.find("```python") + 9
+                                end = query_detail.find("```", start)
+                                if end != -1:
+                                    extracted_code = query_detail[start:end].strip()
+                            elif "```" in query_detail:
+                                # 提取一般代码块
+                                start = query_detail.find("```") + 3
+                                end = query_detail.find("```", start)
+                                if end != -1:
+                                    extracted_code = query_detail[start:end].strip()
+                            else:
+                                # 如果没有代码块标记，但有Python关键字，尝试使用整个query
+                                extracted_code = query_detail
                             
-                            logger.info("成功根据图表类型生成图表")
-                        except Exception as e:
-                            logger.error(f"执行图表生成代码失败: {str(e)}")
-                            traceback.print_exc()
-                            # 错误时visualization_base64保持为None，后续会使用默认图表生成
-                            visualization_base64 = None
+                            if extracted_code:
+                                try:
+                                    logger.info("使用从query中提取的代码生成可视化")
+                                    visualization_base64 = safe_generate_chart(extracted_code, exec_vars)
+                                    
+                                    if visualization_base64:
+                                        logger.info("成功使用query中的代码生成图表")
+                                    else:
+                                        logger.warning("使用query中的代码生成图表失败，将使用默认图表类型")
+                                        visualization_base64 = None
+                                except Exception as e:
+                                    logger.error(f"执行query中的代码失败: {str(e)}")
+                                    visualization_base64 = None
+                        
+                        # 如果没有生成可视化（query中没有代码或代码执行失败），使用默认图表类型生成
+                        if not visualization_base64:
+                            logger.info(f"使用默认图表类型生成: {chart_type_requested}")
+                            
+                            if chart_type_requested == "line":
+                                plt.figure(figsize=(12, 7))
+                                # 创建折线图
+                                code = """
+# 确保日期格式正确
+if '日期' in df.columns:
+    df['日期'] = pd.to_datetime(df['日期'])
+    # 按月分组，使用字符串格式避免Period对象
+    monthly_sales = df.groupby(df['日期'].dt.strftime('%Y-%m'))['销售额(万元)'].sum()
+    plt.plot(monthly_sales.index, monthly_sales.values)
+    plt.title('Monthly Sales Trend')
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+"""
+                            elif chart_type_requested == "bar":
+                                plt.figure(figsize=(12, 7))
+                                # 创建柱状图
+                                code = """
+# 根据品类统计销售额
+if '品类' in df.columns and '销售额(万元)' in df.columns:
+    category_sales = df.groupby('品类')['销售额(万元)'].sum().sort_values(ascending=False)
+    sns.barplot(x=category_sales.index, y=category_sales.values)
+    plt.title('各品类销售额对比')
+    plt.xlabel('品类')
+    plt.ylabel('销售额（万元）')
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+"""
+                            elif chart_type_requested == "pie":
+                                plt.figure(figsize=(12, 7))
+                                # 创建饼图
+                                code = """
+# 根据品类统计销售额占比
+if '品类' in df.columns and '销售额(万元)' in df.columns:
+    category_sales = df.groupby('品类')['销售额(万元)'].sum()
+    plt.pie(category_sales, labels=category_sales.index, autopct='%1.1f%%')
+    plt.title('各品类销售额占比')
+    plt.axis('equal')
+"""
+                            elif chart_type_requested == "scatter":
+                                plt.figure(figsize=(12, 7))
+                                # 创建散点图
+                                code = """
+# 查找数值列作为散点图的 x 和 y
+num_cols = df.select_dtypes(include=['int', 'float']).columns
+if len(num_cols) >= 2:
+    x_col, y_col = num_cols[0], num_cols[1]
+    # 如果有第三个数值列，用它来决定点的大小
+    if len(num_cols) >= 3:
+        size_col = num_cols[2]
+        plt.scatter(df[x_col], df[y_col], s=df[size_col]/df[size_col].mean()*50, alpha=0.6)
+    else:
+        plt.scatter(df[x_col], df[y_col], alpha=0.6)
+    plt.title(f'{y_col} vs {x_col}')
+    plt.xlabel(x_col)
+    plt.ylabel(y_col)
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.tight_layout()
+"""
+                            elif chart_type_requested == "heatmap":
+                                plt.figure(figsize=(12, 7))
+                                # 创建热力图
+                                code = """
+# 查找分类列和数值列
+cat_cols = df.select_dtypes(include=['object']).columns
+num_cols = df.select_dtypes(include=['int', 'float']).columns
+
+if len(cat_cols) >= 2 and len(num_cols) >= 1:
+    # 使用前两个分类列和第一个数值列创建交叉表
+    pivot_table = pd.pivot_table(
+        df, 
+        values=num_cols[0],
+        index=cat_cols[0],
+        columns=cat_cols[1],
+        aggfunc='mean'
+    )
+    
+    # 绘制热力图
+    plt.figure(figsize=(12, 8))
+    sns.heatmap(pivot_table, annot=True, cmap='YlGnBu', fmt='.1f')
+    plt.title(f'{cat_cols[0]} vs {cat_cols[1]} ({num_cols[0]})')
+    plt.tight_layout()
+"""
+                            elif chart_type_requested == "box":
+                                plt.figure(figsize=(12, 7))
+                                # 创建箱线图
+                                code = """
+# 查找分类列和数值列
+cat_cols = df.select_dtypes(include=['object']).columns
+num_cols = df.select_dtypes(include=['int', 'float']).columns
+
+if len(cat_cols) >= 1 and len(num_cols) >= 1:
+    # 使用第一个分类列和第一个数值列创建箱线图
+    plt.figure(figsize=(12, 6))
+    sns.boxplot(x=cat_cols[0], y=num_cols[0], data=df)
+    plt.title(f'各{cat_cols[0]}的{num_cols[0]}分布')
+    plt.xlabel(cat_cols[0])
+    plt.ylabel(num_cols[0])
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+"""
+                            elif chart_type_requested == "histogram":
+                                plt.figure(figsize=(12, 7))
+                                # 创建直方图
+                                code = """
+# 查找数值列
+num_cols = df.select_dtypes(include=['int', 'float']).columns
+
+if len(num_cols) >= 1:
+    # 使用第一个数值列创建直方图
+    plt.figure(figsize=(10, 6))
+    sns.histplot(df[num_cols[0]], kde=True)
+    plt.title(f'{num_cols[0]}分布')
+    plt.xlabel(num_cols[0])
+    plt.ylabel('频率')
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.tight_layout()
+"""
+                            elif chart_type_requested == "area":
+                                plt.figure(figsize=(12, 7))
+                                # 创建面积图
+                                code = """
+# 查找日期列和数值列
+date_cols = [col for col in df.columns if 'date' in col.lower() or '日期' in col]
+num_cols = df.select_dtypes(include=['int', 'float']).columns
+
+if len(date_cols) >= 1 and len(num_cols) >= 1:
+    # 使用日期列和数值列创建面积图
+    date_col = date_cols[0]
+    df[date_col] = pd.to_datetime(df[date_col])
+    
+    # 按日期分组并计算每日总销售额
+    grouped_data = df.groupby(date_col)[num_cols[0]].sum().reset_index()
+    
+    plt.figure(figsize=(12, 6))
+    plt.fill_between(grouped_data[date_col], grouped_data[num_cols[0]], alpha=0.5)
+    plt.plot(grouped_data[date_col], grouped_data[num_cols[0]], linewidth=2)
+    plt.title(f'{num_cols[0]}趋势')
+    plt.xlabel(date_col)
+    plt.ylabel(num_cols[0])
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+"""
+                            else:
+                                plt.figure(figsize=(12, 7))
+                                # 默认创建折线图
+                                code = """
+# 默认创建销售趋势图
+if '日期' in df.columns and '销售额(万元)' in df.columns:
+    df['日期'] = pd.to_datetime(df['日期'])
+    sales_trend = df.groupby('日期')['销售额(万元)'].sum().reset_index()
+    plt.plot(sales_trend['日期'], sales_trend['销售额(万元)'])
+    plt.title('销售趋势分析')
+    plt.xlabel('日期')
+    plt.ylabel('销售额（万元）')
+    plt.grid(True)
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+"""
+                            
+                            # 执行代码生成图表
+                            try:
+                                exec(code, exec_vars)
+                                
+                                # 应用中文文本替换到图表标题和标签
+                                current_fig = plt.gcf()
+                                
+                                # 替换主标题
+                                if current_fig._suptitle:
+                                    title_text = current_fig._suptitle.get_text()
+                                    current_fig.suptitle(apply_chinese_text_replacement(title_text))
+                                
+                                # 替换子图标题和标签
+                                for ax in current_fig.get_axes():
+                                    # 替换标题
+                                    if ax.get_title():
+                                        ax.set_title(apply_chinese_text_replacement(ax.get_title()))
+                                    
+                                    # 替换x轴标签
+                                    if ax.get_xlabel():
+                                        ax.set_xlabel(apply_chinese_text_replacement(ax.get_xlabel()))
+                                    
+                                    # 替换y轴标签
+                                    if ax.get_ylabel():
+                                        ax.set_ylabel(apply_chinese_text_replacement(ax.get_ylabel()))
+                                    
+                                    # 替换图例
+                                    legend = ax.get_legend()
+                                    if legend:
+                                        new_labels = [apply_chinese_text_replacement(label.get_text()) 
+                                                     for label in legend.get_texts()]
+                                        ax.legend(labels=new_labels)
+                                
+                                # 将图表转换为Base64
+                                buff = io.BytesIO()
+                                
+                                # 获取当前图形并应用文本替换
+                                current_fig = plt.gcf()
+                                ensure_complete_text_replacement(current_fig)
+                                
+                                plt.savefig(buff, format='png', dpi=100, bbox_inches='tight', 
+                                           facecolor='white', edgecolor='none')
+                                plt.close()
+                                buff.seek(0)
+                                visualization_base64 = base64.b64encode(buff.read()).decode()
+                                
+                                logger.info("成功根据图表类型生成图表")
+                            except Exception as e:
+                                logger.error(f"执行图表生成代码失败: {str(e)}")
+                                traceback.print_exc()
+                                # 错误时visualization_base64保持为None，后续会使用默认图表生成
+                                visualization_base64 = None
                     
                 except Exception as e:
                     logger.error(f"处理可视化指令失败: {str(e)}")
@@ -539,9 +1009,75 @@ class VisualizationAgent:
                     visualization_base64 = None
             except Exception as e:
                 logger.error(f"解析JSON响应失败: {str(e)}")
-                traceback.print_exc()
-                # 错误时visualization_base64保持为None，后续会使用默认图表生成
-                visualization_base64 = None
+                logger.debug(f"原始响应内容: {text_response[:500]}...")  # 输出前500个字符用于调试
+                logger.debug(f"清理后内容: {cleaned_response[:200]}...")  # 输出前200个字符用于调试
+                
+                # 尝试更激进的JSON提取方法
+                try:
+                    # 尝试逐行查找JSON结构
+                    lines = text_response.split('\n')
+                    json_lines = []
+                    in_json = False
+                    
+                    for line in lines:
+                        line = line.strip()
+                        if line.startswith('{') or in_json:
+                            in_json = True
+                            json_lines.append(line)
+                            if line.endswith('}') and line.count('{') <= line.count('}'):
+                                break
+                    
+                    if json_lines:
+                        potential_json = '\n'.join(json_lines)
+                        vis_data = json.loads(potential_json)
+                        logger.info(f"通过备用方法成功解析可视化指令: {vis_data}")
+                        
+                        # 备用解析成功后，继续执行可视化生成逻辑
+                        try:
+                            # 设置安全的执行环境
+                            exec_vars = {'df': df, 'plt': plt, 'sns': sns, 'pd': pd, 'np': np}
+                            
+                            # 检查是否直接提供了代码
+                            if "code" in vis_data and vis_data["code"]:
+                                # 直接使用提供的代码
+                                code = vis_data["code"]
+                                logger.info("使用备用解析得到的自定义代码生成可视化")
+                                
+                                # 执行代码生成图表
+                                try:
+                                    # 使用安全的图表生成函数
+                                    visualization_base64 = safe_generate_chart(code, exec_vars)
+                                    
+                                    if visualization_base64:
+                                        logger.info("成功使用自定义代码生成图表")
+                                    else:
+                                        logger.error("使用自定义代码生成图表失败")
+                                        visualization_base64 = None
+                                except Exception as e:
+                                    logger.error(f"执行备用解析的自定义代码失败: {str(e)}")
+                                    traceback.print_exc()
+                                    visualization_base64 = None
+                            else:
+                                # 根据图表类型生成相应代码
+                                chart_type_requested = vis_data.get("chart_type", "line")
+                                # 这里可以执行与主流程相同的图表类型判断逻辑
+                                # 为了简化，我们直接使用默认图表生成
+                                visualization_base64 = self._generate_default_chart(df, chart_type_requested)
+                                logger.info("通过备用解析使用默认图表生成")
+                        except Exception as e:
+                            logger.error(f"备用解析后执行可视化生成失败: {str(e)}")
+                            visualization_base64 = None
+                    else:
+                        # 如果仍然失败，错误时visualization_base64保持为None，后续会使用默认图表生成
+                        logger.warning("无法解析LLM响应为JSON格式，将使用默认图表生成")
+                        visualization_base64 = None
+                        vis_data = {}
+                except Exception as e2:
+                    logger.error(f"备用JSON解析方法也失败: {str(e2)}")
+                    traceback.print_exc()
+                    # 错误时visualization_base64保持为None，后续会使用默认图表生成
+                    visualization_base64 = None
+                    vis_data = {}
             
             # 检查text_response是否包含code_interpreter的输出
             if not visualization_base64 and "_interpreter" in text_response:
@@ -567,8 +1103,8 @@ class VisualizationAgent:
             
             # 如果没有生成可视化，尝试推断并生成一个默认图表
             if not visualization_base64:
-                logger.warning("LLM未生成可视化，使用默认图表生成")
-                logger.debug(f"LLM响应内容: {text_response[:200]}...")  # 输出响应内容前200个字符用于调试
+                logger.warning("LLM为生成自定义图表或JSON解析失败，使用默认图表生成")
+                logger.debug(f"LLM响应内容: {text_response[:200]}...")
                 visualization_base64 = self._generate_default_chart(df, chart_type)
                 if not visualization_base64:
                     return {
@@ -576,16 +1112,27 @@ class VisualizationAgent:
                         "error": "无法生成可视化，数据可能不适合可视化或请求不明确",
                         "visualization": None
                     }
+                else:
+                    # 使用默认图表时，提供通用描述
+                    if not chart_description:
+                        chart_description = "基于数据特征生成的默认可视化图表，展示了数据的关键模式和趋势。"
             else:
-                logger.info("成功从LLM响应中提取可视化图像")
+                logger.info("成功从LLM的JSON响应中生成可视化图表")
             
             # 生成图表描述
-            chart_description = self._generate_chart_description(df, query, text_response)
+            chart_description = ""
+            if 'vis_data' in locals() and vis_data and 'description' in vis_data:
+                # 优先使用JSON响应中的description
+                chart_description = vis_data['description']
+                logger.info("使用JSON响应中的description作为图表描述")
+            else:
+                # 如果没有JSON描述，生成默认描述
+                chart_description = self._generate_chart_description(df, query, text_response)
             
             # 记录可视化历史
             visualization_record = {
                 "query": query,
-                "chart_type": chart_type,
+                "chart_type": vis_data.get('chart_type', chart_type) if 'vis_data' in locals() and vis_data else chart_type,
                 "description": chart_description,
                 "timestamp": pd.Timestamp.now().isoformat()
             }
@@ -619,6 +1166,9 @@ class VisualizationAgent:
         try:
             if len(df) == 0 or len(df.columns) == 0:
                 return None
+            
+            # 确保字体设置正确
+            ensure_font_before_plot()
             
             # 强制使用Agg后端确保无GUI环境下也能工作
             plt.switch_backend('Agg')
@@ -812,12 +1362,18 @@ class VisualizationAgent:
             
             # 将图表转换为Base64
             buff = io.BytesIO()
-            plt.savefig(buff, format='png', dpi=100)
+            
+            # 获取当前图形并应用文本替换
+            current_fig = plt.gcf()
+            ensure_complete_text_replacement(current_fig)
+            
+            plt.savefig(buff, format='png', dpi=100, bbox_inches='tight', 
+                       facecolor='white', edgecolor='none')
             plt.close()
             buff.seek(0)
-            img_str = base64.b64encode(buff.read()).decode()
+            visualization_base64 = base64.b64encode(buff.read()).decode()
             
-            return img_str
+            return visualization_base64
             
         except Exception as e:
             logger.error(f"生成默认图表时发生错误: {e}")
@@ -857,10 +1413,10 @@ class VisualizationAgent:
 描述应该简洁明了，突出图表中的关键趋势和洞察。
 不要超过3句话。不要使用"此图表展示了"等表述。"""
             
-            # 准备数据摘要
+            # 准备数据摘要，确保所有数据类型都可以JSON序列化
             data_summary = {
-                "行数": len(df),
-                "列数": len(df.columns),
+                "行数": int(len(df)),
+                "列数": int(len(df.columns)),
                 "列名": list(df.columns)
             }
             
@@ -869,23 +1425,43 @@ class VisualizationAgent:
             if len(numeric_cols) > 0:
                 data_summary["数值统计"] = {}
                 for col in numeric_cols[:3]:  # 最多取前3个数值列
-                    data_summary["数值统计"][col] = {
-                        "均值": float(df[col].mean()),
-                        "最大值": float(df[col].max()),
-                        "最小值": float(df[col].min())
-                    }
+                    try:
+                        col_stats = {
+                            "均值": float(df[col].mean()),
+                            "最大值": float(df[col].max()),
+                            "最小值": float(df[col].min())
+                        }
+                        # 确保没有NaN值
+                        for key, value in col_stats.items():
+                            if pd.isna(value):
+                                col_stats[key] = 0.0
+                        data_summary["数值统计"][col] = col_stats
+                    except Exception as e:
+                        logger.warning(f"计算列 {col} 的统计信息时出错: {e}")
+                        continue
             
             # 添加分类列统计信息
             categorical_cols = df.select_dtypes(include=['object']).columns
             if len(categorical_cols) > 0:
                 data_summary["分类统计"] = {}
                 for col in categorical_cols[:2]:  # 最多取前2个分类列
-                    top_values = df[col].value_counts().nlargest(3)
-                    data_summary["分类统计"][col] = {val: count for val, count in zip(top_values.index, top_values.values)}
+                    try:
+                        top_values = df[col].value_counts().nlargest(3)
+                        # 确保值类型可以序列化
+                        col_stats = {}
+                        for val, count in zip(top_values.index, top_values.values):
+                            # 转换为安全的数据类型
+                            safe_val = str(val) if not isinstance(val, (str, int, float)) else val
+                            safe_count = int(count)
+                            col_stats[safe_val] = safe_count
+                        data_summary["分类统计"][col] = col_stats
+                    except Exception as e:
+                        logger.warning(f"计算列 {col} 的分类统计时出错: {e}")
+                        continue
             
             messages = [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"数据摘要: {json.dumps(data_summary, ensure_ascii=False)}\n\n用户查询: {query}\n\n请根据这些信息生成一个简洁的图表描述。"}
+                {"role": "user", "content": f"数据摘要: {safe_json_dumps(data_summary, ensure_ascii=False)}\n\n用户查询: {query}\n\n请根据这些信息生成一个简洁的图表描述。"}
             ]
             
             # 获取描述
@@ -914,4 +1490,4 @@ class VisualizationAgent:
         返回:
             可视化历史记录列表
         """
-        return self.visualization_history 
+        return self.visualization_history

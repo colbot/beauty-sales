@@ -108,10 +108,9 @@ h1, h2, h3, h4 {
 .app-main {
     display: grid;
     grid-template-columns: 300px 1fr;
-    grid-template-rows: auto 1fr;
+    grid-template-rows: 1fr;
     grid-template-areas:
-        "data chat"
-        "data visualization";
+        "data chat";
     gap: var(--spacing-lg);
 }
 
@@ -275,6 +274,14 @@ h1, h2, h3, h4 {
     border-radius: 0 var(--border-radius) var(--border-radius) 0;
 }
 
+.query-suggestions {
+    margin-top: var(--spacing-md);
+    padding: var(--spacing-md);
+    background-color: var(--light-gray);
+    border-radius: var(--border-radius);
+    border: 1px solid var(--border-color);
+}
+
 .query-suggestions h4 {
     margin-bottom: var(--spacing-sm);
 }
@@ -283,48 +290,34 @@ h1, h2, h3, h4 {
     display: flex;
     flex-wrap: wrap;
     gap: var(--spacing-sm);
+    max-width: 100%;
+    overflow: hidden;
 }
 
 .suggestion-pill {
-    background-color: var(--light-gray);
+    background-color: #ffffff;
     border: 1px solid var(--border-color);
     border-radius: 20px;
     padding: var(--spacing-xs) var(--spacing-md);
     cursor: pointer;
-    transition: background-color 0.2s;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: calc(50% - var(--spacing-sm) / 2);
+    font-size: 14px;
+    line-height: 1.2;
+    color: var(--text-color);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    min-width: 0;
+    flex-shrink: 1;
 }
 
 .suggestion-pill:hover {
     background-color: var(--accent-color);
-}
-
-/* 可视化部分 */
-.visualization-section {
-    grid-area: visualization;
-    background-color: var(--background-color);
-    border-radius: var(--border-radius);
-    padding: var(--spacing-md);
-    box-shadow: var(--shadow);
-}
-
-.visualization-container {
-    min-height: 400px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.empty-state {
-    text-align: center;
-    color: var(--light-text);
-}
-
-/* 页脚 */
-.app-footer {
-    margin-top: var(--spacing-xl);
-    text-align: center;
-    padding: var(--spacing-md) 0;
-    color: var(--light-text);
+    color: white;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 /* 响应式布局 */
@@ -333,8 +326,37 @@ h1, h2, h3, h4 {
         grid-template-columns: 1fr;
         grid-template-areas:
             "data"
-            "chat"
-            "visualization";
+            "chat";
+    }
+    
+    /* 移动端优化问题建议 */
+    .suggestion-pill {
+        max-width: 100%;
+        font-size: 13px;
+        padding: 6px 12px;
+    }
+    
+    .suggestion-pills {
+        gap: 6px;
+    }
+}
+
+/* 小屏幕设备优化 */
+@media (max-width: 480px) {
+    .query-suggestions {
+        padding: var(--spacing-sm);
+        margin-top: var(--spacing-sm);
+    }
+    
+    .suggestion-pill {
+        font-size: 12px;
+        padding: 5px 10px;
+        max-width: 100%;
+        margin-bottom: 4px;
+    }
+    
+    .suggestion-pills {
+        gap: 4px;
     }
 }
 
@@ -612,4 +634,128 @@ h1, h2, h3, h4 {
     height: auto;
     border-radius: 4px;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+/* 页脚 */
+.app-footer {
+    margin-top: var(--spacing-xl);
+    text-align: center;
+    padding: var(--spacing-md) 0;
+    color: var(--light-text);
+}
+
+/* 空状态样式 */
+.empty-state {
+    text-align: center;
+    color: var(--light-text);
+}
+
+/* 专家消息样式 */
+.message.expert {
+    align-items: flex-start;
+    margin-bottom: var(--spacing-lg);
+}
+
+.message.expert .message-content {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: var(--border-radius);
+    max-width: 85%;
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.expert-content {
+    padding: var(--spacing-md);
+}
+
+.expert-header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-sm);
+    padding-bottom: var(--spacing-sm);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.expert-icon {
+    font-size: 18px;
+}
+
+.expert-header strong {
+    flex-grow: 1;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.expert-step-badge {
+    background-color: rgba(255, 255, 255, 0.2);
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.expert-response {
+    background-color: rgba(255, 255, 255, 0.1);
+    padding: var(--spacing-sm);
+    border-radius: var(--border-radius);
+    margin-bottom: var(--spacing-sm);
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.expert-visualization {
+    margin-top: var(--spacing-sm);
+    text-align: center;
+    background-color: rgba(255, 255, 255, 0.1);
+    border-radius: var(--border-radius);
+    padding: var(--spacing-sm);
+}
+
+.expert-viz-image {
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--border-radius);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.expand-btn {
+    background-color: rgba(255, 255, 255, 0.2);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.2s ease;
+    margin-top: var(--spacing-xs);
+}
+
+.expand-btn:hover {
+    background-color: rgba(255, 255, 255, 0.3);
+    border-color: rgba(255, 255, 255, 0.5);
+}
+
+/* 为不同类型的专家使用不同的渐变色 */
+.message.expert[data-expert-type="knowledge"] .message-content {
+    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+}
+
+.message.expert[data-expert-type="sql"] .message-content {
+    background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+}
+
+.message.expert[data-expert-type="data"] .message-content {
+    background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+}
+
+.message.expert[data-expert-type="visualization"] .message-content {
+    background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+    color: var(--text-color);
+}
+
+.message.expert[data-expert-type="visualization"] .expert-header,
+.message.expert[data-expert-type="visualization"] .expert-step-badge {
+    color: var(--text-color);
 } 
