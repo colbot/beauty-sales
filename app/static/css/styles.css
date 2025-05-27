@@ -648,4 +648,114 @@ h1, h2, h3, h4 {
 .empty-state {
     text-align: center;
     color: var(--light-text);
+}
+
+/* 专家消息样式 */
+.message.expert {
+    align-items: flex-start;
+    margin-bottom: var(--spacing-lg);
+}
+
+.message.expert .message-content {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: var(--border-radius);
+    max-width: 85%;
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.expert-content {
+    padding: var(--spacing-md);
+}
+
+.expert-header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-sm);
+    padding-bottom: var(--spacing-sm);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.expert-icon {
+    font-size: 18px;
+}
+
+.expert-header strong {
+    flex-grow: 1;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.expert-step-badge {
+    background-color: rgba(255, 255, 255, 0.2);
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.expert-response {
+    background-color: rgba(255, 255, 255, 0.1);
+    padding: var(--spacing-sm);
+    border-radius: var(--border-radius);
+    margin-bottom: var(--spacing-sm);
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.expert-visualization {
+    margin-top: var(--spacing-sm);
+    text-align: center;
+    background-color: rgba(255, 255, 255, 0.1);
+    border-radius: var(--border-radius);
+    padding: var(--spacing-sm);
+}
+
+.expert-viz-image {
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--border-radius);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.expand-btn {
+    background-color: rgba(255, 255, 255, 0.2);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.2s ease;
+    margin-top: var(--spacing-xs);
+}
+
+.expand-btn:hover {
+    background-color: rgba(255, 255, 255, 0.3);
+    border-color: rgba(255, 255, 255, 0.5);
+}
+
+/* 为不同类型的专家使用不同的渐变色 */
+.message.expert[data-expert-type="knowledge"] .message-content {
+    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+}
+
+.message.expert[data-expert-type="sql"] .message-content {
+    background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+}
+
+.message.expert[data-expert-type="data"] .message-content {
+    background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+}
+
+.message.expert[data-expert-type="visualization"] .message-content {
+    background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%);
+    color: var(--text-color);
+}
+
+.message.expert[data-expert-type="visualization"] .expert-header,
+.message.expert[data-expert-type="visualization"] .expert-step-badge {
+    color: var(--text-color);
 } 

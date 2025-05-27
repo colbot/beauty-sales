@@ -477,6 +477,11 @@ function processStreamingMessage(data, analysisProcessId) {
                     expertStepDiv.appendChild(visualizationPreview);
                 }
             }
+            
+            // *** 新增功能：在聊天框中显示专家结果 ***
+            if (data.content.result) {
+                addExpertResultMessage(data.content);
+            }
             break;
             
         case 'final':
@@ -495,6 +500,131 @@ function processStreamingMessage(data, analysisProcessId) {
                 processContainer.appendChild(finalResult);
             }
             break;
+    }
+}
+
+/**
+ * 在聊天框中添加专家结果消息
+ * @param {Object} expertData - 专家数据
+ */
+function addExpertResultMessage(expertData) {
+    const { expert_name, result, visualization, step, total_steps, source } = expertData;
+    
+    // 生成专家消息ID
+    const expertMessageId = `expert-msg-${step}-${Date.now()}`;
+    
+    // 创建专家消息元素
+    const messageElement = document.createElement('div');
+    messageElement.className = 'message expert';
+    messageElement.id = expertMessageId;
+    
+    // 根据专家来源确定类型
+    let expertType = 'default';
+    if (source) {
+        expertType = source;
+    } else {
+        // 从专家名称推断类型
+        const name = expert_name.toLowerCase();
+        if (name.includes('知识') || name.includes('行业')) {
+            expertType = 'knowledge';
+        } else if (name.includes('sql') || name.includes('数据库')) {
+            expertType = 'sql';
+        } else if (name.includes('数据分析') || name.includes('分析')) {
+            expertType = 'data';
+        } else if (name.includes('可视化') || name.includes('图表')) {
+            expertType = 'visualization';
+        }
+    }
+    
+    // 设置专家类型数据属性
+    messageElement.setAttribute('data-expert-type', expertType);
+    
+    // 创建消息内容
+    const contentElement = document.createElement('div');
+    contentElement.className = 'message-content expert-content';
+    
+    // 检查expert_name是否已经包含"专家"字样，避免重复
+    const displayName = expert_name.endsWith('专家') ? expert_name : `${expert_name}专家`;
+    
+    // 根据专家类型选择图标
+    const expertIcons = {
+        'knowledge': '📚',
+        'sql': '🔍',
+        'data': '📊',
+        'visualization': '📈',
+        'default': '🎯'
+    };
+    const expertIcon = expertIcons[expertType] || expertIcons['default'];
+    
+    // 构建专家结果内容
+    let expertContent = `<div class="expert-header">
+        <span class="expert-icon">${expertIcon}</span>
+        <strong>${displayName}</strong>
+        <span class="expert-step-badge">步骤 ${step}/${total_steps}</span>
+    </div>`;
+    
+    // 添加专家的回答内容
+    if (result) {
+        let responseText = '';
+        if (typeof result === 'string') {
+            responseText = result;
+        } else if (result.response) {
+            responseText = result.response;
+        } else if (result.description) {
+            responseText = result.description;
+        }
+        
+        if (responseText) {
+            // 截断过长的文本
+            const truncatedText = truncateText(responseText, 500);
+            expertContent += `<div class="expert-response">${truncatedText}</div>`;
+            
+            // 如果文本被截断了，添加展开按钮
+            if (responseText.length > 500) {
+                expertContent += `<button class="expand-btn" onclick="expandExpertResponse('${expertMessageId}', '${encodeURIComponent(responseText)}')">查看完整回答</button>`;
+            }
+        }
+    }
+    
+    // 添加可视化内容（如果有）
+    if (visualization) {
+        expertContent += `<div class="expert-visualization">
+            <img src="data:image/png;base64,${visualization}" alt="可视化图表" class="expert-viz-image">
+        </div>`;
+    }
+    
+    contentElement.innerHTML = expertContent;
+    messageElement.appendChild(contentElement);
+    
+    // 将专家消息插入到聊天框中
+    chatMessages.appendChild(messageElement);
+    
+    // 滚动到底部
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+/**
+ * 展开专家回答的完整内容
+ * @param {string} messageId - 消息ID
+ * @param {string} fullText - 完整文本（URL编码）
+ */
+function expandExpertResponse(messageId, fullText) {
+    const messageElement = document.getElementById(messageId);
+    if (!messageElement) return;
+    
+    const responseDiv = messageElement.querySelector('.expert-response');
+    const expandBtn = messageElement.querySelector('.expand-btn');
+    
+    if (responseDiv && expandBtn) {
+        // 解码并显示完整文本
+        const decodedText = decodeURIComponent(fullText);
+        responseDiv.textContent = decodedText;
+        
+        // 移除展开按钮
+        expandBtn.remove();
+        
+        // 滚动到底部
+        chatMessages.scrollTop = chatMessages.scrollHeight;
     }
 }
 
