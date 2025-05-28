@@ -54,17 +54,29 @@ class KnowledgeAgent:
             'model': model_name,
             'model_server': 'dashscope',
             'api_key': api_key,
+            'generate_cfg': {
+                'max_input_tokens': 12000,  # 增加最大输入token数
+                'max_output_tokens': 4000   # 增加最大输出token数
+            }
         }
         
         # 知识库路径
         self.kb_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'knowledge_base')
 
-        # 创建知识检索Assistant实例
+        # 创建知识检索Assistant实例（用于外部工具调用）
         self.knowledge_assistant = Assistant(
             llm=self.llm_cfg,
             name='美妆行业知识专家',
             description='专精于美妆行业专业知识，能够提供行业见解和市场趋势分析',
             function_list=['get_knowledge_response']
+        )
+        
+        # 创建纯LLM Assistant实例（用于内部直接LLM调用，避免循环调用）
+        self.llm_assistant = Assistant(
+            llm=self.llm_cfg,
+            name='美妆行业分析师',
+            description='专精于美妆行业专业知识，能够提供行业见解和市场趋势分析',
+            function_list=[]  # 不包含任何工具，直接使用LLM
         )
         
         # 初始化知识库
@@ -242,73 +254,109 @@ class KnowledgeAgent:
         logger.info("创建基础美妆行业知识文档完成")
     
     def _get_knowledge_response(self, query: str, context: Optional[List[Dict[str, str]]] = None) -> str:
-        """结合知识库和LLM回答问题
+        """结合知识库改写和增强用户问题，添加行业背景和专业方法论
         
         参数:
-            query: 用户问题
+            query: 用户原始问题
             context: 可选的上下文信息
             
         返回:
-            回答文本
+            增强后的问题或分析指导
         """
         try:
-            # 构建系统提示
-            system_prompt = """你是一位美妆行业的专业分析师，擅长利用行业知识回答问题。
-请基于提供的知识内容回答用户问题。如果知识内容不足以完全回答问题，可以使用你的专业知识进行补充，但要明确区分哪些是来自知识库的信息，哪些是你的补充。
-回答应该专业、简洁，并且具有实际操作价值。"""
+            # 构建系统提示 - 专注于问题改写和分析指导
+            system_prompt = """你是一位美妆行业的专业分析师，擅长将用户的简单问题转化为专业的分析框架。
+
+你的任务是：
+1. 分析用户的原始问题，识别其核心关注点
+2. 基于美妆行业知识，为这个问题提供专业的行业背景
+3. 提出科学的数据分析方法论和关键指标
+4. 给出具体的分析维度和建议的分析步骤
+
+请输出格式化的分析指导，包含：
+- 行业背景：相关的美妆行业知识和市场情况
+- 关键指标：应该关注的核心数据指标
+- 分析维度：从哪些角度进行分析
+- 方法建议：推荐的分析方法和步骤
+
+不要直接回答用户的问题，而是为后续的数据分析提供专业指导。"""
             
-            # 准备用户消息内容
-            user_content = query
+            # 准备包含知识库文件的内容
+            content = [{"text": f"用户原始问题: {query}"}]
             
-            # 如果有上下文，将上下文添加到用户消息中
+            # 如果有上下文，添加到内容中（限制长度）
             if context:
-                context_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in context])
-                user_content = f"以下是之前的对话上下文:\n{context_str}\n\n{user_content}"
+                # 限制上下文，只取最近的2条对话
+                recent_context = context[-2:] if len(context) > 2 else context
+                context_str = "\n".join([f"{msg['role']}: {msg['content'][:150]}{'...' if len(msg['content']) > 150 else ''}" for msg in recent_context])
+                content.append({"text": f"最近对话:\n{context_str}"})
+            
+            # 添加知识库文件作为参考（限制文件数量）
+            kb_files_added = 0
+            max_kb_files = 3  # 限制最多添加3个知识库文件
+            for root, dirs, filenames in os.walk(self.kb_dir):
+                for filename in filenames:
+                    if kb_files_added >= max_kb_files:
+                        break
+                    if filename.endswith('.md') or filename.endswith('.txt'):
+                        file_path = os.path.join(root, filename)
+                        content.append({"file": file_path})
+                        kb_files_added += 1
+                if kb_files_added >= max_kb_files:
+                    break
+            
+            logger.info(f"为问题增强加载了 {kb_files_added} 个知识库文件")
             
             # 构建消息
             messages = [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content}
+                {"role": "user", "content": content}
             ]
             
-            # 准备文件内容
-            content = [{"text": query}]
-            
-            # 添加知识库文件作为参考
-            files = []
-            for root, dirs, filenames in os.walk(self.kb_dir):
-                for filename in filenames:
-                    if filename.endswith('.md') or filename.endswith('.txt'):
-                        file_path = os.path.join(root, filename)
-                        files.append({"file": file_path})
-            
-            if files:
-                content.extend(files)
-            
-            # 构建包含文件的消息
-            file_message = {"role": "user", "content": content}
-            
-            # 使用LLM生成回答
-            response_text = ""
-            for response in self.knowledge_assistant.run(messages=[file_message]):
+            # 使用LLM生成问题增强和分析指导
+            enhanced_guidance = ""
+            for response in self.llm_assistant.run(messages=messages):
                 if "content" in response[0]:
-                    response_text = response[0]["content"]
+                    enhanced_guidance += response[0]["content"]
             
-            return response_text
+            return enhanced_guidance
             
         except Exception as e:
-            logger.error(f"获取知识响应时发生错误: {e}")
-            return f"抱歉，在处理您的问题时遇到了错误: {str(e)}"
+            logger.error(f"增强问题时发生错误: {e}")
+            return f"""基于美妆行业的基础分析框架：
+
+行业背景：
+美妆行业是一个快速发展的消费品行业，具有季节性强、品牌忠诚度高、渠道多样化等特点。
+
+关键指标：
+- 销售额和销量趋势
+- 产品类别表现（护肤、彩妆、香水等）
+- 客户画像和购买行为
+- 渠道效率和ROI
+
+分析维度：
+- 时间维度：季节性、节假日效应
+- 产品维度：类别、品牌、价格段
+- 客户维度：年龄、地域、消费能力
+- 渠道维度：线上线下、不同平台
+
+方法建议：
+1. 描述性统计分析
+2. 趋势分析和同比环比
+3. 细分市场分析
+4. 关联性分析
+
+原始问题: {query}"""
     
     def get_knowledge_response(self, query: str, context: Optional[List[Dict[str, str]]] = None) -> str:
-        """对外接口，结合知识库和LLM回答问题
+        """对外接口，结合知识库改写和增强用户问题，添加行业背景和专业方法论
         
         参数:
-            query: 用户问题
+            query: 用户原始问题
             context: 可选的上下文信息
             
         返回:
-            回答文本
+            增强后的分析指导
         """
         return self._get_knowledge_response(query, context)
     
