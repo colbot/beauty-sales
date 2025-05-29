@@ -10,15 +10,17 @@ from app.database import Base
 class DataSource(Base):
     """数据源模型"""
     __tablename__ = "data_sources"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), index=True)
     description = Column(Text, nullable=True)
-    file_path = Column(String(500))
-    file_type = Column(String(50))  # csv, excel, db
+    file_path = Column(String(500), nullable=True)  # 文件路径，对于预配置数据源可为空
+    file_type = Column(String(50))  # csv, excel, db, postgres
+    is_predefined = Column(Integer, default=0)  # 0: 用户上传, 1: 预配置数据源
+    connection_config = Column(Text, nullable=True)  # 数据库连接配置的JSON字符串
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
-    
+
     # 关联
     chat_sessions = relationship("ChatSession", back_populates="data_source")
 
