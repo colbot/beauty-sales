@@ -91,6 +91,10 @@ class DataAgent:
             'model': model_name,
             'model_server': 'dashscope',
             'api_key': api_key,
+            'generate_cfg': {
+                'max_input_tokens': 12000,  # 增加最大输入token数
+                'max_output_tokens': 4000   # 增加最大输出token数
+            }
         }
         
         # 创建数据处理Assistant实例
@@ -100,7 +104,15 @@ class DataAgent:
             description='专精于美妆销售数据的分析，能够处理数据并提供业务洞察',
             function_list=['run_analysis', 'generate_report', 'code_interpreter']
         )
-        
+
+        # 创建纯LLM Assistant实例（用于内部直接LLM调用，避免循环调用）
+        self.llm_assistant = Assistant(
+            llm=self.llm_cfg,
+            name='数据分析专家',
+            description='专精于美妆销售数据的分析，能够处理数据并提供业务洞察',
+            function_list=['code_interpreter']
+        )
+
         # 当前加载的数据
         self.current_data = None
         self.data_source = None
@@ -233,24 +245,34 @@ class DataAgent:
 
 请确保回答专业、简洁，直接回答用户的问题。"""
             
-            # 获取数据基本信息
+            # 获取数据基本信息（精简版，避免内容过长）
+            data_summary = self.get_data_summary()
+            
+            # 构建精简的数据信息
             data_info = f"""
 数据基本信息:
 - 数据源: {self.data_source}
 - 行数: {len(self.current_data)}
 - 列数: {len(self.current_data.columns)}
-- 列名: {', '.join(self.current_data.columns)}
-- 数据预览: 
-{self.current_data.head().to_string()}
+- 列名: {', '.join(self.current_data.columns[:10])}{'...' if len(self.current_data.columns) > 10 else ''}
+- 数据类型: {', '.join([f"{col}({str(self.current_data[col].dtype)})" for col in self.current_data.columns[:5]])}{'...' if len(self.current_data.columns) > 5 else ''}
 """
+            
+            # 只有在数据行数较少时才添加数据预览
+            if len(self.current_data) <= 20:
+                data_info += f"- 数据预览:\n{self.current_data.head(3).to_string()}\n"
+            else:
+                data_info += f"- 数据已加载，包含{len(self.current_data)}行记录\n"
             
             # 构建消息，确保只有一个system消息在第一位
             user_content = f"{data_info}\n\n用户问题: {query}"
             
-            # 如果有上下文，将上下文添加到用户消息中
+            # 如果有上下文，将上下文添加到用户消息中（限制上下文长度）
             if context:
-                context_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in context])
-                user_content = f"以下是之前的对话上下文:\n{context_str}\n\n{user_content}"
+                # 限制上下文，只取最近的3条对话
+                recent_context = context[-3:] if len(context) > 3 else context
+                context_str = "\n".join([f"{msg['role']}: {msg['content'][:200]}{'...' if len(msg['content']) > 200 else ''}" for msg in recent_context])
+                user_content = f"最近对话:\n{context_str}\n\n{user_content}"
             
             # 将数据作为文件传递给LLM
             content = [{"text": user_content}]
@@ -275,7 +297,7 @@ class DataAgent:
             text_response = ""
             visualization = None
             
-            for response in self.data_assistant.run(messages=messages):
+            for response in self.llm_assistant.run(messages=messages):
                 if "content" in response[0]:
                     text_response += response[0]["content"]
             
@@ -634,7 +656,7 @@ class DataAgent:
             
             # 使用LLM生成洞察
             insights_text = ""
-            for response in self.data_assistant.run(messages=messages):
+            for response in self.llm_assistant.run(messages=messages):
                 if "content" in response[0]:
                     insights_text += response[0]["content"]
             
@@ -707,7 +729,7 @@ class DataAgent:
             
             # 使用LLM生成报告
             report_text = ""
-            for response in self.data_assistant.run(messages=messages):
+            for response in self.llm_assistant.run(messages=messages):
                 if "content" in response[0]:
                     report_text += response[0]["content"]
             

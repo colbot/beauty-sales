@@ -283,9 +283,9 @@ async function sendMessage() {
                         finalResponse = data.content.response;
                         
                         // 移除思考指示器
-                        const thinkingIndicator = processContainer.querySelector('.thinking-indicator');
-                        if (thinkingIndicator) {
-                            thinkingIndicator.remove();
+                        let lastThinkingIndicator = processContainer.querySelector('.thinking-indicator');
+                        if (lastThinkingIndicator) {
+                            lastThinkingIndicator.remove();
                         }
                         
                         // 创建折叠/展开按钮
@@ -295,30 +295,23 @@ async function sendMessage() {
                             
                             const toggleButton = document.createElement('button');
                             toggleButton.className = 'toggle-process-btn';
-                            toggleButton.innerHTML = '收起思考过程';
+                            toggleButton.textContent = '收起分析过程';
                             toggleButton.onclick = function() {
-                                const isExpanded = processContainer.getAttribute('data-expanded') !== 'false';
+                                const processSteps = processContainer.querySelectorAll('.thinking-step, .plan-step, .experts-step, .expert-start');
+                                const isCurrentlyVisible = toggleButton.getAttribute('data-collapsed') !== 'true';
                                 
-                                // 获取所有思考步骤元素
-                                const thinkingElements = processContainer.querySelectorAll('.plan-step, .experts-step, .expert-start');
+                                processSteps.forEach(step => {
+                                    step.style.display = isCurrentlyVisible ? 'none' : 'block';
+                                });
                                 
-                                // 获取最终结果元素
-                                const finalResult = processContainer.querySelector('.final-result');
-                                
-                                if (isExpanded) {
-                                    // 收起思考过程
-                                    thinkingElements.forEach(el => {
-                                        el.style.display = 'none';
-                                    });
-                                    toggleButton.innerHTML = '展开思考过程';
-                                    processContainer.setAttribute('data-expanded', 'false');
+                                if (isCurrentlyVisible) {
+                                    // 当前可见，点击后隐藏
+                                    toggleButton.textContent = "展开分析过程";
+                                    toggleButton.setAttribute('data-collapsed', 'true');
                                 } else {
-                                    // 展开思考过程
-                                    thinkingElements.forEach(el => {
-                                        el.style.display = '';
-                                    });
-                                    toggleButton.innerHTML = '收起思考过程';
-                                    processContainer.setAttribute('data-expanded', 'true');
+                                    // 当前隐藏，点击后显示
+                                    toggleButton.textContent = "收起分析过程";
+                                    toggleButton.setAttribute('data-collapsed', 'false');
                                 }
                             };
                             
@@ -333,14 +326,80 @@ async function sendMessage() {
                             visualizationId = data.content.visualization_id;
                         }
                         
-                        // 添加助手的最终回复消息（在分析过程容器之后）
-                        const assistantMessageId = addMessage('assistant', finalResponse);
+                        // 改进可视化数据处理
+                        let visualizationBase64 = null;
                         
-                        // 将分析过程容器移动到新的助手消息之前
-                        const assistantMessageElement = document.getElementById(assistantMessageId);
-                        if (assistantMessageElement) {
-                            chatMessages.insertBefore(processContainer, assistantMessageElement);
+                        // 多重检查可视化数据来源
+                        if (data.content.visualization) {
+                            visualizationBase64 = data.content.visualization;
+                            console.log("Found visualization in resultContent.visualization");
+                        } else if (data.content.visualization_result && data.content.visualization_result.visualization) {
+                            visualizationBase64 = data.content.visualization_result.visualization;
+                            console.log("Found visualization in resultContent.visualization_result.visualization");
+                        } else if (data.content.visualization_result && data.content.visualization_result.image_data) {
+                            // 兼容不同的字段名
+                            visualizationBase64 = data.content.visualization_result.image_data;
+                            console.log("Found visualization in resultContent.visualization_result.image_data");
+                        } else {
+                            console.log("No visualization data found");
+                            // 打印可用的字段以便调试
+                            console.log("Available fields:", Object.keys(data.content));
+                            if (data.content.visualization_result) {
+                                console.log("visualization_result fields:", Object.keys(data.content.visualization_result));
+                            }
                         }
+                        
+                        if (visualizationBase64) {
+                            const imgElement = document.createElement('img');
+                            imgElement.src = `data:image/png;base64,${visualizationBase64}`;
+                            imgElement.style.maxWidth = '100%';
+                            imgElement.style.height = 'auto';
+                            imgElement.style.border = '1px solid #ddd';
+                            imgElement.style.borderRadius = '8px';
+                            imgElement.style.marginTop = '15px';
+                            imgElement.style.cursor = 'pointer';
+                            
+                            // 添加点击放大功能
+                            imgElement.onclick = function() {
+                                const modal = document.createElement('div');
+                                modal.style.cssText = `
+                                    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                                    background: rgba(0,0,0,0.8); display: flex; justify-content: center;
+                                    align-items: center; z-index: 1000; cursor: pointer;
+                                `;
+                                
+                                const modalImg = document.createElement('img');
+                                modalImg.src = imgElement.src;
+                                modalImg.style.maxWidth = '90%';
+                                modalImg.style.maxHeight = '90%';
+                                modalImg.style.objectFit = 'contain';
+                                
+                                modal.appendChild(modalImg);
+                                document.body.appendChild(modal);
+                                
+                                modal.onclick = function() {
+                                    document.body.removeChild(modal);
+                                };
+                            };
+                            
+                            processContainer.appendChild(imgElement);
+                            console.log("Visualization image added successfully");
+                        } else {
+                            console.log("No visualization data to display");
+                        }
+                        
+                        // 将按钮容器和最终结果添加到分析过程容器
+                        processContainer.appendChild(buttonContainer);
+                        processContainer.appendChild(processContainer.lastChild);
+                        
+                        // 确保所有分析过程步骤都是可见的（默认展开状态）
+                        const processSteps = processContainer.querySelectorAll('.thinking-step, .plan-step, .experts-step, .expert-start');
+                        processSteps.forEach(step => {
+                            step.style.display = 'block';  // 确保所有步骤都显示
+                        });
+                        
+                        // 设置按钮初始状态为展开（false表示未收起）
+                        toggleButton.setAttribute('data-collapsed', 'false');
                     }
                 } catch (e) {
                     console.error('解析流式响应失败:', e, line);
@@ -350,8 +409,73 @@ async function sendMessage() {
         
     } catch (error) {
         console.error('发送消息失败:', error);
-        // 在用户消息后添加错误消息
-        addMessage('system', `抱歉，我遇到了一些问题: ${error.message}`);
+        
+        // 查找最新的分析过程容器，避免直接使用可能未定义的analysisProcessId
+        const processContainers = document.querySelectorAll('.analysis-process-container');
+        const processContainer = processContainers.length > 0 ? processContainers[processContainers.length - 1] : null;
+        
+        if (processContainer) {
+            let lastThinkingIndicator = processContainer.querySelector('.thinking-indicator');
+            if (lastThinkingIndicator) {
+                lastThinkingIndicator.remove();
+            }
+            
+            // 检查是否有专家结果，如果有则生成总结
+            const expertResults = processContainer.querySelectorAll('.expert-start');
+            if (expertResults.length > 0) {
+                // 生成分析总结
+                const summaryContent = generateAnalysisSummary(expertResults, message);
+                addMessage('assistant', summaryContent);
+                
+                // 保留分析过程容器，让用户通过按钮控制显示/隐藏
+                // processContainer.style.display = 'none';  // 注释掉这行，让分析过程保持可见
+                
+                // 如果还没有最终结果样式，为错误情况添加基本的结果样式
+                if (!processContainer.classList.contains('has-final-result')) {
+                    processContainer.classList.add('has-final-result');
+                    
+                    // 创建折叠/展开按钮
+                    const toggleButton = document.createElement("button");
+                    toggleButton.className = "toggle-process-btn";
+                    toggleButton.textContent = "收起分析过程";
+                    toggleButton.onclick = function() {
+                        const processSteps = processContainer.querySelectorAll('.thinking-step, .plan-step, .experts-step, .expert-start');
+                        const isCurrentlyVisible = toggleButton.getAttribute('data-collapsed') !== 'true';
+                        
+                        processSteps.forEach(step => {
+                            step.style.display = isCurrentlyVisible ? 'none' : 'block';
+                        });
+                        
+                        if (isCurrentlyVisible) {
+                            toggleButton.textContent = "展开分析过程";
+                            toggleButton.setAttribute('data-collapsed', 'true');
+                        } else {
+                            toggleButton.textContent = "收起分析过程";
+                            toggleButton.setAttribute('data-collapsed', 'false');
+                        }
+                    };
+                    
+                    const buttonContainer = document.createElement("div");
+                    buttonContainer.className = "process-button-container";
+                    buttonContainer.appendChild(toggleButton);
+                    processContainer.appendChild(buttonContainer);
+                    
+                    // 确保分析过程步骤可见
+                    const processSteps = processContainer.querySelectorAll('.thinking-step, .plan-step, .experts-step, .expert-start');
+                    processSteps.forEach(step => {
+                        step.style.display = 'block';
+                    });
+                    
+                    toggleButton.setAttribute('data-collapsed', 'false');
+                }
+            } else {
+                // 如果没有任何分析过程，显示友好的提示
+                addMessage('system', '分析过程中断，请重新尝试您的问题。您可以尝试简化问题或检查网络连接。');
+            }
+        } else {
+            // 如果没有分析过程容器，显示友好的提示
+            addMessage('system', '连接中断，请重新尝试您的问题。');
+        }
     }
 }
 
@@ -361,145 +485,393 @@ async function sendMessage() {
  * @param {string} analysisProcessId - 分析过程容器ID
  */
 function processStreamingMessage(data, analysisProcessId) {
-    const processContainer = document.getElementById(analysisProcessId);
+    // 处理流式消息
+    console.log("Received streaming message:", data);
+
+    if (!data) return;
+
+    // 如果是最终结果
+    if (data.type === "final") {
+        let resultContent = data.content;
+        let processContainer = document.getElementById(analysisProcessId);
+        
+        if (processContainer) {
+            // 添加最终结果区域，但保留分析过程
+            processContainer.classList.add("has-final-result");
+            
+            // 创建折叠/展开按钮
+            const toggleButton = document.createElement("button");
+            toggleButton.className = "toggle-process-btn";
+            toggleButton.textContent = "收起分析过程";  // 默认是展开状态，所以显示"收起"
+            toggleButton.onclick = function() {
+                const processSteps = processContainer.querySelectorAll('.thinking-step, .plan-step, .experts-step, .expert-start');
+                const isCurrentlyVisible = toggleButton.getAttribute('data-collapsed') !== 'true';
+                
+                processSteps.forEach(step => {
+                    step.style.display = isCurrentlyVisible ? 'none' : 'block';
+                });
+                
+                if (isCurrentlyVisible) {
+                    // 当前可见，点击后隐藏
+                    toggleButton.textContent = "展开分析过程";
+                    toggleButton.setAttribute('data-collapsed', 'true');
+                } else {
+                    // 当前隐藏，点击后显示
+                    toggleButton.textContent = "收起分析过程";
+                    toggleButton.setAttribute('data-collapsed', 'false');
+                }
+            };
+            
+            // 创建按钮容器
+            const buttonContainer = document.createElement("div");
+            buttonContainer.className = "process-button-container";
+            buttonContainer.appendChild(toggleButton);
+            
+            // 创建最终结果区域
+            const finalResultDiv = document.createElement("div");
+            finalResultDiv.className = "final-result";
+            
+            // 创建结果标题
+            const resultHeader = document.createElement("div");
+            resultHeader.className = "result-header";
+            resultHeader.innerHTML = '<span class="result-icon">✨</span> 分析结果';
+            
+            // 创建分隔线
+            const resultDivider = document.createElement("div");
+            resultDivider.className = "result-divider";
+            
+            // 创建结果内容
+            const resultContentDiv = document.createElement("div");
+            resultContentDiv.className = "result-content";
+            
+            // 使用markdown解析器渲染内容
+            const markdownContent = parseMarkdown(resultContent.response || "分析完成");
+            resultContentDiv.innerHTML = markdownContent;
+            
+            // 组合最终结果
+            finalResultDiv.appendChild(resultHeader);
+            finalResultDiv.appendChild(resultDivider);
+            finalResultDiv.appendChild(resultContentDiv);
+            
+            // 改进可视化数据处理
+            let visualizationBase64 = null;
+            
+            // 多重检查可视化数据来源
+            if (resultContent.visualization) {
+                visualizationBase64 = resultContent.visualization;
+                console.log("Found visualization in resultContent.visualization");
+            } else if (resultContent.visualization_result && resultContent.visualization_result.visualization) {
+                visualizationBase64 = resultContent.visualization_result.visualization;
+                console.log("Found visualization in resultContent.visualization_result.visualization");
+            } else if (resultContent.visualization_result && resultContent.visualization_result.image_data) {
+                // 兼容不同的字段名
+                visualizationBase64 = resultContent.visualization_result.image_data;
+                console.log("Found visualization in resultContent.visualization_result.image_data");
+            } else {
+                console.log("No visualization data found");
+                // 打印可用的字段以便调试
+                console.log("Available fields:", Object.keys(resultContent));
+                if (resultContent.visualization_result) {
+                    console.log("visualization_result fields:", Object.keys(resultContent.visualization_result));
+                }
+            }
+            
+            if (visualizationBase64) {
+                const imgElement = document.createElement('img');
+                imgElement.src = `data:image/png;base64,${visualizationBase64}`;
+                imgElement.style.maxWidth = '100%';
+                imgElement.style.height = 'auto';
+                imgElement.style.border = '1px solid #ddd';
+                imgElement.style.borderRadius = '8px';
+                imgElement.style.marginTop = '15px';
+                imgElement.style.cursor = 'pointer';
+                
+                // 添加点击放大功能
+                imgElement.onclick = function() {
+                    const modal = document.createElement('div');
+                    modal.style.cssText = `
+                        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                        background: rgba(0,0,0,0.8); display: flex; justify-content: center;
+                        align-items: center; z-index: 1000; cursor: pointer;
+                    `;
+                    
+                    const modalImg = document.createElement('img');
+                    modalImg.src = imgElement.src;
+                    modalImg.style.maxWidth = '90%';
+                    modalImg.style.maxHeight = '90%';
+                    modalImg.style.objectFit = 'contain';
+                    
+                    modal.appendChild(modalImg);
+                    document.body.appendChild(modal);
+                    
+                    modal.onclick = function() {
+                        document.body.removeChild(modal);
+                    };
+                };
+                
+                finalResultDiv.appendChild(imgElement);
+                console.log("Visualization image added successfully");
+            } else {
+                console.log("No visualization data to display");
+            }
+            
+            // 将按钮容器和最终结果添加到分析过程容器
+            processContainer.appendChild(buttonContainer);
+            processContainer.appendChild(finalResultDiv);
+
+            // 确保所有分析过程步骤都是可见的（默认展开状态）
+            const processSteps = processContainer.querySelectorAll('.thinking-step, .plan-step, .experts-step, .expert-start');
+            processSteps.forEach(step => {
+                step.style.display = 'block';  // 确保所有步骤都显示
+            });
+            
+            // 设置按钮初始状态为展开（false表示未收起）
+            toggleButton.setAttribute('data-collapsed', 'false');
+        }
+
+        // 添加完整的助手消息
+        addMessage('assistant', resultContent.response);
+    }
+    // 如果是思考步骤
+    else if (data.type === "thinking") {
+        // 如果分析过程容器不存在，则创建一个
+        let processContainer = document.getElementById(analysisProcessId);
+        if (!processContainer) {
+            processContainer = document.createElement("div");
+            processContainer.className = "analysis-process-container";
+            processContainer.id = analysisProcessId;
+            document.getElementById("chat-messages").appendChild(processContainer);
+        }
+        
+        // 查找或创建thinking-step元素
+        let thinkingStep = processContainer.querySelector('.thinking-step');
+        if (!thinkingStep) {
+            thinkingStep = document.createElement("div");
+            thinkingStep.className = "thinking-step";
+            thinkingStep.innerHTML = '<span class="step-icon">🧠</span> <strong>思考中</strong>';
+            processContainer.appendChild(thinkingStep);
+        }
+        
+        // 创建或更新临时思考消息
+        let tempThinking = processContainer.querySelector('.temporary-thinking');
+        if (!tempThinking) {
+            tempThinking = document.createElement("div");
+            tempThinking.className = "temporary-thinking";
+            thinkingStep.appendChild(tempThinking);
+        }
+        
+        tempThinking.textContent = data.content || "正在思考...";
+    }
+    // 如果是计划步骤
+    else if (data.type === "plan") {
+        let processContainer = document.getElementById(analysisProcessId);
     if (!processContainer) return;
     
-    // 思考过程显示在上方，最终结果显示在下方
-    switch (data.type) {
-        case 'thinking':
-            // 思考过程已经通过思考指示器表示，不需要额外处理
+        // 移除thinking-indicator如果存在
+        let lastThinkingIndicator = processContainer.querySelector('.thinking-indicator');
+        if (lastThinkingIndicator) {
+            lastThinkingIndicator.remove();
+        }
+        
+        // 移除临时思考消息
+        const tempThinking = processContainer.querySelector('.temporary-thinking');
+        if (tempThinking) {
+            tempThinking.remove();
+        }
+        
+        // 查找或创建plan-step元素
+        let planStep = processContainer.querySelector('.plan-step');
+        if (!planStep) {
+            planStep = document.createElement("div");
+            planStep.className = "plan-step";
+            planStep.innerHTML = '<span class="step-icon">📋</span> <strong>分析计划</strong>';
+            processContainer.appendChild(planStep);
+            
+            // 创建计划内容包装器
+            const planContentWrapper = document.createElement("div");
+            planContentWrapper.className = "plan-content-wrapper";
+            planStep.appendChild(planContentWrapper);
+        }
+        
+        // 格式化并显示计划内容
+        const planContentWrapper = planStep.querySelector('.plan-content-wrapper');
+        if (planContentWrapper) {
+            planContentWrapper.innerHTML = formatPlanContent(data.content);
+        }
+    }
+    // 如果是专家步骤
+    else if (data.type === "experts") {
+        let processContainer = document.getElementById(analysisProcessId);
+        if (!processContainer) return;
+        
+        // 查找或创建experts-step元素
+        let expertsStep = processContainer.querySelector('.experts-step');
+        if (!expertsStep) {
+            expertsStep = document.createElement("div");
+            expertsStep.className = "experts-step";
+            expertsStep.innerHTML = '<span class="step-icon">👥</span> <strong>专家团队</strong>';
+            processContainer.appendChild(expertsStep);
+            
+            // 创建专家列表
+            const expertsList = document.createElement("div");
+            expertsList.className = "experts-list";
+            expertsStep.appendChild(expertsList);
+        }
+        
+        // 显示专家列表
+        const expertsList = expertsStep.querySelector('.experts-list');
+        if (expertsList && Array.isArray(data.content)) {
+            expertsList.innerHTML = '';  // 清空现有内容
+            
+            data.content.forEach(expertName => {
+                const expertBadge = document.createElement("span");
+                expertBadge.className = "expert-badge";
+                expertBadge.textContent = expertName;
+                expertsList.appendChild(expertBadge);
+            });
+        }
+    }
+    // 如果是专家开始工作
+    else if (data.type === "expert_start") {
+        let processContainer = document.getElementById(analysisProcessId);
+        if (!processContainer) return;
+        
+        const expertData = data.content;
+        if (!expertData) return;
+        
+        // 创建专家开始元素
+        const expertStart = document.createElement("div");
+        expertStart.className = "expert-start";
+        expertStart.setAttribute("data-expert-type", expertData.expert_type);
+        
+        // 创建专家头部
+        const expertHeader = document.createElement("div");
+        expertHeader.innerHTML = `<span class="step-icon">🔍</span> <strong>${expertData.expert_name}</strong> <span class="expert-step-badge">步骤 ${expertData.step}/${expertData.total_steps}</span>`;
+        
+        // 创建进度条
+        const expertProgress = document.createElement("div");
+        expertProgress.className = "expert-progress";
+        
+        const progressBar = document.createElement("div");
+        progressBar.className = "progress-bar in-progress";
+        
+        const statusText = document.createElement("span");
+        statusText.className = "status-text";
+        statusText.textContent = "处理中...";
+        
+        expertProgress.appendChild(progressBar);
+        expertProgress.appendChild(statusText);
+        
+        // 组合专家开始元素
+        expertStart.appendChild(expertHeader);
+        expertStart.appendChild(expertProgress);
+        
+        // 添加到分析过程容器
+        processContainer.appendChild(expertStart);
+        
+        // 滚动到最新内容
+        expertStart.scrollIntoView({ behavior: "smooth", block: "end" });
+    }
+    // 如果是中间结果
+    else if (data.type === "intermediate") {
+        const expertData = data.content;
+        if (!expertData) return;
+        
+        let processContainer = document.getElementById(analysisProcessId);
+        if (!processContainer) return;
+        
+        // 查找对应的专家开始元素
+        const expertStarts = processContainer.querySelectorAll('.expert-start');
+        let currentExpertStart = null;
+        
+        for (let i = expertStarts.length - 1; i >= 0; i--) {
+            if (expertStarts[i].querySelector('strong').textContent === expertData.expert_name) {
+                currentExpertStart = expertStarts[i];
             break;
+            }
+        }
+        
+        if (!currentExpertStart) return;
+        
+        // 更新进度条状态为完成
+        const progressBar = currentExpertStart.querySelector('.progress-bar');
+        if (progressBar) {
+            progressBar.className = "progress-bar completed";
+        }
+        
+        // 更新状态文本
+        const statusText = currentExpertStart.querySelector('.status-text');
+        if (statusText) {
+            statusText.textContent = "完成";
+        }
+        
+        // 如果有结果，添加到专家开始元素
+        if (expertData.result) {
+            // 先移除之前的结果预览（如果有）
+            const existingPreview = currentExpertStart.querySelector('.result-preview');
+            if (existingPreview) {
+                existingPreview.remove();
+            }
             
-        case 'plan':
-            // 查找容器中是否已有计划步骤
-            let planStepDiv = processContainer.querySelector('.plan-step');
+            // 创建结果预览
+            const resultPreview = document.createElement("div");
+            resultPreview.className = "result-preview";
             
-            if (planStepDiv) {
-                // 已存在，更新内容
-                const planContentDiv = planStepDiv.querySelector('.plan-content-wrapper');
-                if (planContentDiv) {
-                    // 确保使用格式化的内容更新
-                    planContentDiv.innerHTML = formatPlanContent(data.content, true);
-                }
+            // 根据结果类型显示不同内容
+            if (typeof expertData.result === 'string') {
+                resultPreview.textContent = truncateText(expertData.result, 300);
+            } else if (typeof expertData.result === 'object') {
+                if (expertData.result.response) {
+                    resultPreview.textContent = truncateText(expertData.result.response, 300);
             } else {
-                // 不存在，创建新元素
-                planStepDiv = document.createElement('div');
-                planStepDiv.className = 'plan-step';
-                planStepDiv.innerHTML = `
-                    <span class="step-icon">📋</span>
-                    <strong>分析计划</strong>
-                    <div class="plan-content-wrapper">
-                        ${formatPlanContent(data.content, true)}
-                    </div>
-                `;
-                processContainer.appendChild(planStepDiv);
-            }
-            break;
-            
-        case 'experts':
-            // 查找容器中是否已有专家团队步骤
-            let expertsStepDiv = processContainer.querySelector('.experts-step');
-            const expertsHTML = `<span class="step-icon">👩‍💼</span> <strong>专家团队</strong><div class="experts-list">${data.content.map(expert => `<span class="expert-badge">${expert}</span>`).join(' ')}</div>`;
-            
-            if (expertsStepDiv) {
-                // 已存在，更新内容
-                expertsStepDiv.innerHTML = expertsHTML;
-            } else {
-                // 不存在，创建新元素
-                expertsStepDiv = document.createElement('div');
-                expertsStepDiv.className = 'experts-step';
-                expertsStepDiv.innerHTML = expertsHTML;
-                processContainer.appendChild(expertsStepDiv);
-            }
-            break;
-            
-        case 'expert_start':
-            const { expert_name, step, total_steps } = data.content;
-            // 检查是否已存在该专家步骤
-            let expertDiv = processContainer.querySelector(`#expert-${step}`);
-            
-            if (!expertDiv) {
-                expertDiv = document.createElement('div');
-                expertDiv.className = 'expert-start';
-                expertDiv.id = `expert-${step}`;
-                
-                // 检查expert_name是否已经包含"专家"字样，避免重复
-                const displayName = expert_name.endsWith('专家') ? expert_name : `${expert_name}专家`;
-                
-                expertDiv.innerHTML = `
-                    <span class="step-icon">⚙️</span> 
-                    <strong>步骤 ${step}/${total_steps}: ${displayName}</strong>
-                    <div class="expert-progress">
-                        <div class="progress-bar in-progress"></div>
-                        <span class="status-text">处理中...</span>
-                    </div>
-                `;
-                processContainer.appendChild(expertDiv);
-            }
-            break;
-            
-        case 'intermediate':
-            const expertStepDiv = processContainer.querySelector(`#expert-${data.content.step}`);
-            if (expertStepDiv) {
-                // 更新专家进度状态为已完成
-                const progressBar = expertStepDiv.querySelector('.progress-bar');
-                const statusText = expertStepDiv.querySelector('.status-text');
-                if (progressBar) progressBar.className = 'progress-bar completed';
-                if (statusText) statusText.textContent = '已完成';
-                
-                // 添加专家结果预览（如果有且不存在）
-                if (data.content.result && data.content.result.response && !expertStepDiv.querySelector('.result-preview')) {
-                    const resultPreview = document.createElement('div');
-                    resultPreview.className = 'result-preview';
-                    resultPreview.textContent = truncateText(data.content.result.response, 150);
-                    expertStepDiv.appendChild(resultPreview);
+                    resultPreview.textContent = "处理完成";
                 }
                 
-                // 添加可视化预览（如果有且不存在）
-                if (data.content.visualization && !expertStepDiv.querySelector('.visualization-preview')) {
-                    // 创建可视化预览容器
-                    const visualizationPreview = document.createElement('div');
-                    visualizationPreview.className = 'visualization-preview';
+                // 如果有可视化，显示缩略图
+                if (expertData.visualization) {
+                    const visContainer = document.createElement("div");
+                    visContainer.style.textAlign = "center";
+                    visContainer.style.marginTop = "10px";
                     
-                    // 创建图像元素
-                    const imgElement = document.createElement('img');
-                    imgElement.className = 'visualization-image';
+                    const visImage = document.createElement("img");
+                    visImage.src = "data:image/png;base64," + expertData.visualization;
+                    visImage.style.maxWidth = "100%";
+                    visImage.style.maxHeight = "150px";
+                    visImage.style.borderRadius = "4px";
                     
-                    // 确保base64字符串格式正确
-                    const imageData = data.content.visualization;
-                    if (!imageData.startsWith('data:image')) {
-                        imgElement.src = `data:image/png;base64,${imageData}`;
-                    } else {
-                        imgElement.src = imageData;
-                    }
-                    
-                    visualizationPreview.appendChild(imgElement);
-                    expertStepDiv.appendChild(visualizationPreview);
+                    visContainer.appendChild(visImage);
+                    resultPreview.appendChild(visContainer);
                 }
             }
             
-            // *** 新增功能：在聊天框中显示专家结果 ***
-            if (data.content.result) {
-                addExpertResultMessage(data.content);
-            }
-            break;
+            currentExpertStart.appendChild(resultPreview);
             
-        case 'final':
-            // 当接收到最终回答时，在分析过程下方添加一个最终结果区域
-            if (!processContainer.querySelector('.final-result')) {
-                const finalResult = document.createElement('div');
-                finalResult.className = 'final-result';
-                finalResult.innerHTML = `
-                    <div class="result-divider"></div>
-                    <div class="result-header">
-                        <span class="result-icon">✅</span>
-                        <strong>分析结果</strong>
+            // 如果最后一个专家完成了，添加一个思考指示器表示正在生成最终结果
+            if (expertData.step === expertData.total_steps) {
+                const finalProcessThinkingIndicator = document.createElement("div");
+                finalProcessThinkingIndicator.className = "thinking-indicator";
+                finalProcessThinkingIndicator.innerHTML = `
+                    <div class="thinking-dots">
+                        正在生成最终分析结果<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>
                     </div>
-                    <div class="result-content">${data.content.response}</div>
                 `;
-                processContainer.appendChild(finalResult);
+                processContainer.appendChild(finalProcessThinkingIndicator);
+                finalProcessThinkingIndicator.scrollIntoView({ behavior: "smooth", block: "end" });
             }
-            break;
+        }
+    }
+    
+    // 更新滚动位置
+    updateScroll();
+}
+
+/**
+ * 更新滚动位置，确保聊天窗口滚动到最新消息
+ */
+function updateScroll() {
+    const chatMessages = document.getElementById('chat-messages');
+    if (chatMessages) {
+        chatMessages.scrollTop = chatMessages.scrollHeight;
     }
 }
 
@@ -522,7 +894,7 @@ function addExpertResultMessage(expertData) {
     let expertType = 'default';
     if (source) {
         expertType = source;
-    } else {
+            } else {
         // 从专家名称推断类型
         const name = expert_name.toLowerCase();
         if (name.includes('知识') || name.includes('行业')) {
@@ -542,10 +914,10 @@ function addExpertResultMessage(expertData) {
     // 创建消息内容
     const contentElement = document.createElement('div');
     contentElement.className = 'message-content expert-content';
-    
-    // 检查expert_name是否已经包含"专家"字样，避免重复
-    const displayName = expert_name.endsWith('专家') ? expert_name : `${expert_name}专家`;
-    
+                
+                // 检查expert_name是否已经包含"专家"字样，避免重复
+                const displayName = expert_name.endsWith('专家') ? expert_name : `${expert_name}专家`;
+                
     // 根据专家类型选择图标
     const expertIcons = {
         'knowledge': '📚',
@@ -581,7 +953,14 @@ function addExpertResultMessage(expertData) {
             
             // 如果文本被截断了，添加展开按钮
             if (responseText.length > 500) {
-                expertContent += `<button class="expand-btn" onclick="expandExpertResponse('${expertMessageId}', '${encodeURIComponent(responseText)}')">查看完整回答</button>`;
+                // 创建唯一ID用于存储完整文本
+                const fullTextId = `full-text-${expertMessageId}`;
+                
+                // 创建隐藏的div存储完整文本
+                expertContent += `<div id="${fullTextId}" style="display:none;">${responseText}</div>`;
+                
+                // 添加展开按钮，传入消息ID和完整文本ID
+                expertContent += `<button class="expand-btn" onclick="expandExpertResponse('${expertMessageId}', '${fullTextId}')">查看完整回答</button>`;
             }
         }
     }
@@ -606,9 +985,9 @@ function addExpertResultMessage(expertData) {
 /**
  * 展开专家回答的完整内容
  * @param {string} messageId - 消息ID
- * @param {string} fullText - 完整文本（URL编码）
+ * @param {string} fullTextId - 完整文本ID
  */
-function expandExpertResponse(messageId, fullText) {
+function expandExpertResponse(messageId, fullTextId) {
     const messageElement = document.getElementById(messageId);
     if (!messageElement) return;
     
@@ -616,15 +995,23 @@ function expandExpertResponse(messageId, fullText) {
     const expandBtn = messageElement.querySelector('.expand-btn');
     
     if (responseDiv && expandBtn) {
-        // 解码并显示完整文本
-        const decodedText = decodeURIComponent(fullText);
-        responseDiv.textContent = decodedText;
-        
-        // 移除展开按钮
-        expandBtn.remove();
-        
-        // 滚动到底部
-        chatMessages.scrollTop = chatMessages.scrollHeight;
+        try {
+            // 获取完整文本
+            const fullTextElement = document.getElementById(fullTextId);
+            const fullText = fullTextElement ? fullTextElement.innerHTML : '';
+            
+            // 显示完整文本
+            responseDiv.innerHTML = fullText;
+            
+            // 移除展开按钮
+            expandBtn.remove();
+            
+            // 滚动到底部
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        } catch (error) {
+            console.error('展开回答时出错:', error);
+            responseDiv.innerHTML = '<div class="error-message">无法显示完整回答，请重试。</div>';
+        }
     }
 }
 
@@ -689,8 +1076,7 @@ function truncateText(text, maxLength) {
  * @returns {string} 消息DOM元素ID
  */
 function addMessage(role, content) {
-    const messageId = `msg-${Date.now()}`;
-    
+    const messageId = `message-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const messageElement = document.createElement('div');
     messageElement.className = `message ${role}`;
     messageElement.id = messageId;
@@ -698,13 +1084,19 @@ function addMessage(role, content) {
     const contentElement = document.createElement('div');
     contentElement.className = 'message-content';
     
+    // 为助手消息使用markdown解析
+    if (role === 'assistant') {
+        const markdownContent = parseMarkdown(content);
+        contentElement.innerHTML = markdownContent;
+    } else {
     contentElement.textContent = content;
+    }
     
     messageElement.appendChild(contentElement);
     chatMessages.appendChild(messageElement);
     
-    // 滚动到底部
-    chatMessages.scrollTop = chatMessages.scrollHeight;
+    // 滚动到最新消息
+    updateScroll();
     
     return messageId;
 }
@@ -797,4 +1189,203 @@ async function startNewSession() {
         showError(`创建新会话失败: ${error.message}`);
         newSessionButton.disabled = false;
     }
+}
+
+/**
+ * 生成分析总结
+ * @param {NodeList} expertResults - 专家结果元素列表
+ * @param {string} originalQuery - 原始用户问题
+ * @returns {string} 分析总结内容
+ */
+function generateAnalysisSummary(expertResults, originalQuery) {
+    const completedExperts = [];
+    const analysis = {
+        knowledge: null,
+        sql: null,
+        data: null,
+        visualization: null
+    };
+    
+    // 分析已完成的专家步骤
+    expertResults.forEach(expertElement => {
+        const expertName = expertElement.querySelector('strong').textContent;
+        const isCompleted = expertElement.querySelector('.progress-bar.completed');
+        const resultPreview = expertElement.querySelector('.result-preview');
+        const hasVisualization = expertElement.querySelector('.visualization-preview');
+        
+        if (isCompleted) {
+            completedExperts.push(expertName);
+            
+            // 根据专家类型归类结果
+            if (expertName.includes('知识') || expertName.includes('行业')) {
+                analysis.knowledge = resultPreview ? resultPreview.textContent : '已提供行业背景分析';
+            } else if (expertName.includes('SQL') || expertName.includes('数据库')) {
+                analysis.sql = resultPreview ? resultPreview.textContent : '已完成数据查询';
+            } else if (expertName.includes('数据分析')) {
+                analysis.data = resultPreview ? resultPreview.textContent : '已完成数据分析';
+            } else if (expertName.includes('可视化')) {
+                analysis.visualization = hasVisualization ? '已生成可视化图表' : '已完成可视化分析';
+            }
+        }
+    });
+    
+    // 生成总结内容
+    let summaryContent = `## 📊 分析总结\n\n针对您的问题"${originalQuery}"，我们的专家团队已完成以下分析：\n\n`;
+    
+    if (completedExperts.length === 0) {
+        summaryContent += '分析过程尚未完成，建议重新尝试。';
+    } else {
+        summaryContent += `✅ **已完成的分析步骤** (${completedExperts.length}个)：\n`;
+        completedExperts.forEach((expert, index) => {
+            summaryContent += `${index + 1}. ${expert}\n`;
+        });
+        
+        summaryContent += '\n**分析要点**：\n';
+        
+        if (analysis.knowledge) {
+            summaryContent += `🎯 **行业洞察**：已提供美妆行业专业背景和分析框架\n`;
+        }
+        
+        if (analysis.sql) {
+            summaryContent += `🔍 **数据查询**：已获取相关销售数据\n`;
+        }
+        
+        if (analysis.data) {
+            summaryContent += `📈 **数据分析**：已完成销售数据的统计分析\n`;
+        }
+        
+        if (analysis.visualization) {
+            summaryContent += `📊 **可视化展示**：已生成直观的数据图表\n`;
+        }
+        
+        summaryContent += '\n虽然分析过程被中断，但以上步骤的结果仍可为您的决策提供参考。';
+        
+        if (completedExperts.length < 4) {
+            summaryContent += '\n\n💡 **建议**：您可以重新提问以获得完整的四专家协作分析。';
+        }
+    }
+    
+    return summaryContent;
+}
+
+/**
+ * 简单的Markdown解析器，将markdown文本转换为HTML
+ * @param {string} text - markdown文本
+ * @returns {string} HTML文本
+ */
+function parseMarkdown(text) {
+    if (!text) return '';
+    
+    let html = text;
+    
+    // 处理标题 (## 标题)
+    html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
+    html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
+    html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
+    
+    // 处理加粗文本 (**文本** 或 __文本__)
+    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/__(.*?)__/g, '<strong>$1</strong>');
+    
+    // 处理斜体文本 (*文本* 或 _文本_) - 但不影响列表标记
+    html = html.replace(/(?<!\*)\*([^*\n]+?)\*(?!\*)/g, '<em>$1</em>');
+    html = html.replace(/(?<!_)_([^_\n]+?)_(?!_)/g, '<em>$1</em>');
+    
+    // 处理代码块 (`代码`)
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+    
+    // 处理无序列表 (- 项目 或 * 项目) - 保持emoji和图标
+    html = html.replace(/^[\s]*[-\*\+]\s+(.+$)/gim, '<li>$1</li>');
+    
+    // 处理有序列表 (1. 项目)
+    html = html.replace(/^[\s]*(\d+\.)\s+(.+$)/gim, '<li><span class="list-number">$1</span> $2</li>');
+    
+    // 处理带图标的列表项（如 ✅ 或 🎯）
+    html = html.replace(/^[\s]*([✅❌🎯📊🔍💡⚠️ℹ️]+)\s+(.+$)/gim, '<li><span class="list-icon">$1</span> $2</li>');
+    
+    // 将连续的<li>包装在<ul>中
+    html = html.replace(/(<li>.*?<\/li>(?:\s*<li>.*?<\/li>)*)/gs, function(match) {
+        return '<ul>' + match + '</ul>';
+    });
+    
+    // 处理段落分隔 (双换行符)
+    html = html.replace(/\n\s*\n/g, '</p><p>');
+    
+    // 处理单个换行符
+    html = html.replace(/\n/g, '<br>');
+    
+    // 包装在段落中（如果不是以标题或列表开始）
+    if (html && !html.match(/^(<h[1-6]|<ul|<ol|<p)/)) {
+        html = '<p>' + html + '</p>';
+    }
+    
+    // 清理多余的空白段落
+    html = html.replace(/<p>\s*<\/p>/g, '');
+    html = html.replace(/<p>\s*<br>\s*<\/p>/g, '');
+    html = html.replace(/<p><br><\/p>/g, '');
+    
+    // 修复嵌套的<p>标签
+    html = html.replace(/<p>(<h[1-6].*?<\/h[1-6]>)<\/p>/g, '$1');
+    html = html.replace(/<p>(<ul>.*?<\/ul>)<\/p>/gs, '$1');
+    html = html.replace(/<p>(<ol>.*?<\/ol>)<\/p>/gs, '$1');
+    
+    return html;
 } 
+
+// 添加图片点击放大功能
+function addImageClickHandler() {
+    document.addEventListener('click', function(e) {
+        if (e.target.classList.contains('visualization-image') || 
+            e.target.classList.contains('expert-viz-image')) {
+            
+            // 创建模态框
+            const modal = document.createElement('div');
+            modal.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background-color: rgba(0, 0, 0, 0.8);
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                z-index: 10000;
+                cursor: pointer;
+            `;
+            
+            const img = document.createElement('img');
+            img.src = e.target.src;
+            img.style.cssText = `
+                max-width: 95%;
+                max-height: 95%;
+                object-fit: contain;
+                border-radius: 8px;
+                box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            `;
+            
+            modal.appendChild(img);
+            document.body.appendChild(modal);
+            
+            // 点击模态框关闭
+            modal.addEventListener('click', function() {
+                document.body.removeChild(modal);
+            });
+            
+            // ESC键关闭
+            document.addEventListener('keydown', function escHandler(e) {
+                if (e.key === 'Escape') {
+                    if (document.body.contains(modal)) {
+                        document.body.removeChild(modal);
+                    }
+                    document.removeEventListener('keydown', escHandler);
+                }
+            });
+        }
+    });
+}
+
+// 在页面加载完成后添加事件处理器
+document.addEventListener('DOMContentLoaded', function() {
+    addImageClickHandler();
+}); 

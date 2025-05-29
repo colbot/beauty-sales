@@ -65,6 +65,10 @@ class SQLAgent:
             'model': model_name,
             'model_server': 'dashscope',
             'api_key': api_key,
+            'generate_cfg': {
+                'max_input_tokens': 12000,  # 增加最大输入token数
+                'max_output_tokens': 4000   # 增加最大输出token数
+            }
         }
 
         # 创建SQL Assistant实例
@@ -73,6 +77,14 @@ class SQLAgent:
             name='SQL专家',
             description='专精于将自然语言转换为SQL查询，并能解释查询结果的含义',
             function_list=['execute_nl_query']
+        )
+
+        # 创建纯LLM Assistant实例（用于内部直接LLM调用，避免循环调用）
+        self.llm_assistant = Assistant(
+            llm=self.llm_cfg,
+            name='SQL专家',
+            description='专精于将自然语言转换为SQL查询，并能解释查询结果的含义',
+            function_list=[]
         )
         
         # 数据库连接状态
@@ -201,31 +213,34 @@ class SQLAgent:
         
         for table_name, table_info in self.tables_info.items():
             schema_text += f"表: {table_name}\n"
-            schema_text += "列名\t类型\t是否主键\t是否允许为空\t默认值\n"
-            schema_text += "-" * 60 + "\n"
+            schema_text += "列名\t类型\t是否主键\t是否允许为空\n"
+            schema_text += "-" * 40 + "\n"
             
             for col_name, col_info in table_info["columns"].items():
                 pk_str = "是" if col_info["primary_key"] else "否"
                 not_null_str = "否" if col_info["not_null"] else "是"
-                default_val = col_info["default"] if col_info["default"] is not None else "NULL"
                 
-                schema_text += f"{col_name}\t{col_info['type']}\t{pk_str}\t{not_null_str}\t{default_val}\n"
+                schema_text += f"{col_name}\t{col_info['type']}\t{pk_str}\t{not_null_str}\n"
             
-            schema_text += "\n数据示例:\n"
+            # 只显示前3行数据示例，减少长度
+            schema_text += "\n数据示例(前3行):\n"
             if table_info["sample_data"]:
                 # 获取列名
                 col_names = list(table_info["columns"].keys())
                 # 添加列名行
-                schema_text += "\t".join(col_names) + "\n"
-                schema_text += "-" * 60 + "\n"
+                schema_text += "\t".join(col_names[:5]) + ("..." if len(col_names) > 5 else "") + "\n"
+                schema_text += "-" * 40 + "\n"
                 
-                # 添加示例数据
-                for row in table_info["sample_data"]:
-                    schema_text += "\t".join([str(val) for val in row]) + "\n"
+                # 添加示例数据（最多3行，最多5列）
+                for i, row in enumerate(table_info["sample_data"][:3]):
+                    row_data = [str(val) for val in row[:5]]
+                    if len(row) > 5:
+                        row_data.append("...")
+                    schema_text += "\t".join(row_data) + "\n"
             else:
                 schema_text += "无数据\n"
             
-            schema_text += "\n" + "=" * 80 + "\n\n"
+            schema_text += "\n" + "=" * 50 + "\n\n"
         
         return schema_text
     
@@ -324,8 +339,10 @@ class SQLAgent:
             # 添加上下文信息（如果有）
             context_info = ""
             if context:
-                context_str = "\n".join([f"{msg['role']}: {msg['content']}" for msg in context])
-                context_info = f"\n以下是之前的对话上下文:\n{context_str}"
+                # 限制上下文，只取最近的2条对话
+                recent_context = context[-2:] if len(context) > 2 else context
+                context_str = "\n".join([f"{msg['role']}: {msg['content'][:150]}{'...' if len(msg['content']) > 150 else ''}" for msg in recent_context])
+                context_info = f"\n最近对话:\n{context_str}"
             
             # 合并所有系统信息为一个完整的system prompt
             complete_system_prompt = f"{system_prompt}{context_info}"
@@ -338,7 +355,7 @@ class SQLAgent:
             
             # 使用LLM生成SQL
             response_text = ""
-            for response in self.sql_assistant.run(messages=messages):
+            for response in self.llm_assistant.run(messages=messages):
                 if "content" in response[0]:
                     response_text += response[0]["content"]
             
@@ -623,7 +640,7 @@ SQL解释:
             
             # 使用LLM生成解释
             explanation = ""
-            for response in self.sql_assistant.run(messages=messages):
+            for response in self.llm_assistant.run(messages=messages):
                 if "content" in response[0]:
                     explanation += response[0]["content"]
             

@@ -15,6 +15,7 @@ from app.utils.data_loader import load_data_from_source
 from app.database.init_db import get_db
 from app.models import models
 from pydantic import BaseModel
+import time
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -265,6 +266,10 @@ async def stream_chat(
     """流式处理聊天请求，实时返回分析过程"""
     async def generate_response():
         try:
+            # 设置响应超时保护
+            MAX_PROCESSING_TIME = 180  # 最大处理时间为3分钟
+            start_time = time.time()
+            
             # 获取或创建会话ID
             session_id = chat_request.session_id or str(uuid.uuid4())
             
@@ -313,7 +318,11 @@ async def stream_chat(
             ).order_by(models.ChatMessage.created_at).all()
             
             # 将历史消息转换为Agent可用的格式，并更新会话状态
-            conversation_history = [{"role": msg.role, "content": msg.content} for msg in messages]
+            # 限制历史消息数量，避免传输过大
+            max_messages = 10
+            recent_messages = messages[-max_messages:] if len(messages) > max_messages else messages
+            conversation_history = [{"role": msg.role, "content": msg.content} for msg in recent_messages]
+            
             # 更新MainAgent的会话历史
             main_agent.session_state["conversation_history"] = conversation_history
             
@@ -350,6 +359,18 @@ async def stream_chat(
             
             # 流式处理查询
             for response_chunk in main_agent.process_query(chat_request.message):
+                # 检查处理时间是否超时
+                current_time = time.time()
+                if current_time - start_time > MAX_PROCESSING_TIME:
+                    # 超时处理
+                    yield json.dumps({
+                        "type": "warning",
+                        "content": {
+                            "message": "处理时间过长，已自动中断。请尝试简化您的问题或分多次询问。"
+                        }
+                    }) + "\n"
+                    break
+                
                 # 如果是最终结果，保存它
                 if response_chunk["type"] == "final":
                     final_response = response_chunk["content"]["response"]
@@ -385,11 +406,45 @@ async def stream_chat(
                         visualization_id = visualization.id
                         response_chunk["content"]["visualization_id"] = visualization_id
                 
-                # 发送流式结果
-                yield json.dumps(response_chunk) + "\n"
+                # 优化响应大小，压缩超大的响应
+                try:
+                    # 对于expert_start, intermediate, final等类型的响应，检查并限制数据大小
+                    if "content" in response_chunk and isinstance(response_chunk["content"], dict):
+                        if "result" in response_chunk["content"] and isinstance(response_chunk["content"]["result"], dict):
+                            # 如果响应文本超过50KB，截断它
+                            if "response" in response_chunk["content"]["result"] and isinstance(response_chunk["content"]["result"]["response"], str):
+                                response_text = response_chunk["content"]["result"]["response"]
+                                if len(response_text) > 50000:  # 约50KB
+                                    response_chunk["content"]["result"]["response"] = response_text[:50000] + "...(响应过长，已截断)"
+                    
+                    # 检查可视化数据是否太大
+                    if "content" in response_chunk and isinstance(response_chunk["content"], dict) and "visualization" in response_chunk["content"]:
+                        vis_data = response_chunk["content"]["visualization"]
+                        if isinstance(vis_data, str) and len(vis_data) > 500000:  # 约500KB
+                            # 可视化数据太大，移除它并添加警告
+                            response_chunk["content"]["visualization"] = None
+                            response_chunk["content"]["visualization_warning"] = "可视化数据过大，无法在聊天界面显示。请查看结果部分的可视化摘要。"
+                except Exception as e:
+                    logger.warning(f"优化响应大小时出错: {e}")
                 
-                # 防止过快返回
-                await asyncio.sleep(0.05)
+                # 发送流式结果
+                try:
+                    chunk_json = json.dumps(response_chunk)
+                    yield chunk_json + "\n"
+                    
+                    # 强制刷新响应流，避免缓冲问题
+                    await asyncio.sleep(0.01)
+                except Exception as chunk_error:
+                    logger.error(f"发送流式结果块时出错: {chunk_error}")
+                    # 如果单个块发送失败，尝试发送一个简化版本
+                    yield json.dumps({
+                        "type": response_chunk.get("type", "unknown"),
+                        "content": {"message": "处理中..."}
+                    }) + "\n"
+            
+            # 如果没有最终响应，但处理过程中断，生成一个合理的响应
+            if not final_response:
+                final_response = "处理您的问题时遇到了困难，可能是因为问题过于复杂或数据量过大。请尝试简化您的问题，或者分多次询问不同的方面。"
             
             # 保存助手回复
             if final_response:
@@ -412,10 +467,23 @@ async def stream_chat(
             
         except Exception as e:
             logger.error(f"流式处理聊天请求时发生错误: {e}", exc_info=True)
-            yield json.dumps({"error": f"处理聊天请求时发生错误: {str(e)}"}) + "\n"
+            # 简化错误消息，避免发送过大的堆栈
+            error_message = str(e)
+            if len(error_message) > 1000:
+                error_message = error_message[:1000] + "...(错误信息过长，已截断)"
+                
+            yield json.dumps({
+                "error": "处理聊天请求时发生错误",
+                "message": error_message
+            }) + "\n"
     
-    # 返回流式响应
+    # 返回流式响应，添加响应头以优化流式传输
     return StreamingResponse(
         generate_response(),
-        media_type="text/event-stream"
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"  # 禁用Nginx的缓冲
+        }
     ) 
