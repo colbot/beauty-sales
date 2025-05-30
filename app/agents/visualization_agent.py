@@ -18,6 +18,7 @@ from qwen_agent.tools.base import BaseTool, register_tool
 import traceback
 import re
 import platform
+import matplotlib.font_manager as fm
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -134,27 +135,51 @@ def setup_chinese_font():
         
         # 方法1：优先检查并使用预下载的字体文件
         try:
-            # 构建字体文件路径 - 使用更精确的路径定位
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            project_root = os.path.dirname(os.path.dirname(current_dir))
-            font_dir = os.path.join(project_root, 'app', 'static', 'fonts')
-            font_file = os.path.join(font_dir, 'NotoSansCJK-Regular.ttc')
+            # 构建字体文件路径 - 不使用__file__，改用工作目录
+            current_dir = os.getcwd()
             
-            # 也尝试相对路径和其他可能的路径
+            # 尝试多种方式获取项目根目录和字体路径
             possible_paths = [
-                font_file,
-                os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'app', 'static', 'fonts', 'NotoSansCJK-Regular.ttc'),
-                os.path.join('.', 'app', 'static', 'fonts', 'NotoSansCJK-Regular.ttc'),
-                os.path.join('app', 'static', 'fonts', 'NotoSansCJK-Regular.ttc'),
-                './app/static/fonts/NotoSansCJK-Regular.ttc'
+                # 基于当前工作目录的路径
+                os.path.join(current_dir, 'app', 'static', 'fonts', 'NotoSansCJK-Regular.ttc'),
+                os.path.join(current_dir, 'static', 'fonts', 'NotoSansCJK-Regular.ttc'),
+                os.path.join(current_dir, 'fonts', 'NotoSansCJK-Regular.ttc'),
+                
+                # 相对路径
+                'app/static/fonts/NotoSansCJK-Regular.ttc',
+                './app/static/fonts/NotoSansCJK-Regular.ttc',
+                'static/fonts/NotoSansCJK-Regular.ttc',
+                'fonts/NotoSansCJK-Regular.ttc',
+                
+                # 上级目录的路径
+                '../app/static/fonts/NotoSansCJK-Regular.ttc',
+                '../../app/static/fonts/NotoSansCJK-Regular.ttc',
+                '../static/fonts/NotoSansCJK-Regular.ttc',
+                
+                # Windows 特定路径
+                'C:/Users/zhoxing.FAREAST/Desktop/beauty-sales/app/static/fonts/NotoSansCJK-Regular.ttc',
+                'C:\\Users\\zhoxing.FAREAST\\Desktop\\beauty-sales\\app\\static\\fonts\\NotoSansCJK-Regular.ttc',
+                '/c/Users/zhoxing.FAREAST/Desktop/beauty-sales/app/static/fonts/NotoSansCJK-Regular.ttc',
             ]
             
+            logger.info(f"正在搜索字体文件，当前目录: {current_dir}")
+            logger.info(f"将尝试 {len(possible_paths)} 个可能的路径")
+            
             font_file_found = None
-            for path in possible_paths:
-                if os.path.exists(path):
-                    font_file_found = path
-                    logger.info(f"找到字体文件: {path}")
-                    break
+            for i, path in enumerate(possible_paths):
+                try:
+                    # 标准化路径
+                    normalized_path = os.path.normpath(path)
+                    if os.path.exists(normalized_path):
+                        font_file_found = os.path.abspath(normalized_path)
+                        logger.info(f"找到字体文件 (第{i+1}个路径): {font_file_found}")
+                        break
+                    else:
+                        if i < 8:  # 只显示前8个尝试的路径，避免日志过长
+                            logger.debug(f"路径不存在 ({i+1}): {normalized_path}")
+                except Exception as path_error:
+                    if i < 3:  # 只显示前3个路径错误
+                        logger.warning(f"检查路径时出错 ({i+1}): {path} - {path_error}")
             
             if font_file_found:
                 logger.info(f"使用字体文件: {font_file_found}")
@@ -789,109 +814,263 @@ df = smart_date_parsing(df)
 """
         
         # 在代码中添加字体设置
-        font_setup_code = f"""
-# 确保字体设置正确
+        font_setup_code = """
+# ==================== 中文字体设置 ====================
+import matplotlib
+matplotlib.use('Agg')
+
 import matplotlib.pyplot as plt
-import matplotlib as mpl
-import re
+import matplotlib.font_manager as fm
+import os
 import platform
 
-plt.switch_backend('Agg')
-plt.rcParams['font.family'] = ['sans-serif']
-plt.rcParams['axes.unicode_minus'] = False
+# 设置基本参数
+plt.rcdefaults()
+chinese_font_loaded = False
 
-# 设置合理的图表尺寸，确保不超过matplotlib限制
-# 最大像素限制：每个方向不能超过 65536 像素 (2^16)
-# 使用合适的尺寸和DPI组合
-max_width_inches = 20  # 最大20英寸宽度
-max_height_inches = 15  # 最大15英寸高度
-safe_dpi = 150  # 安全的DPI设置
+# 设置图表尺寸和DPI
+plt.rcParams.update({
+    'figure.figsize': [16, 12],
+    'figure.dpi': 100,
+    'savefig.dpi': 150,
+    'font.size': 12,
+    'axes.titlesize': 16,
+    'axes.labelsize': 14,
+    'xtick.labelsize': 12,
+    'ytick.labelsize': 12,
+    'legend.fontsize': 12,
+    'axes.unicode_minus': False
+})
 
-# 计算像素尺寸确保不超限
-max_pixels_width = max_width_inches * safe_dpi  # 20 * 150 = 3000 像素
-max_pixels_height = max_height_inches * safe_dpi  # 15 * 150 = 2250 像素
+print("开始字体设置...")
 
-plt.rcParams['figure.figsize'] = [max_width_inches, max_height_inches]
-plt.rcParams['figure.dpi'] = safe_dpi
-plt.rcParams['savefig.dpi'] = safe_dpi
+# 尝试加载预下载字体
+try:
+    current_dir = os.getcwd()
+    font_paths = [
+        os.path.join(current_dir, 'app', 'static', 'fonts', 'NotoSansCJK-Regular.ttc'),
+        'app/static/fonts/NotoSansCJK-Regular.ttc',
+        'C:/Users/zhoxing.FAREAST/Desktop/beauty-sales/app/static/fonts/NotoSansCJK-Regular.ttc'
+    ]
+    
+    font_file = None
+    for path in font_paths:
+        try:
+            if os.path.exists(path) and os.path.getsize(path) > 1024*1024:
+                font_file = os.path.abspath(path)
+                print(f"找到字体文件: {font_file}")
+                break
+        except:
+            continue
+    
+    if font_file:
+        # 清除缓存
+        try:
+            cache_dir = matplotlib.get_cachedir()
+            cache_file = os.path.join(cache_dir, 'fontlist-v330.json')
+            if os.path.exists(cache_file):
+                os.remove(cache_file)
+        except:
+            pass
+        
+        # 重新加载字体管理器
+        fm._load_fontmanager(try_read_cache=False)
+        
+        # 添加字体
+        fm.fontManager.addfont(font_file)
+        
+        # 找到字体名称
+        font_name = None
+        for font in fm.fontManager.ttflist:
+            if font.fname == font_file:
+                font_name = font.name
+                break
+        
+        if not font_name:
+            font_name = "Noto Sans CJK JP"
+        
+        # 设置字体
+        plt.rcParams['font.sans-serif'] = [font_name, 'DejaVu Sans', 'Arial']
+        chinese_font_loaded = True
+        print(f"成功加载字体: {font_name}")
+        
+except Exception as e:
+    print(f"预下载字体加载失败: {e}")
 
-# 设置合适的字体大小
-plt.rcParams['font.size'] = 12
-plt.rcParams['axes.titlesize'] = 18
-plt.rcParams['axes.labelsize'] = 14
-plt.rcParams['xtick.labelsize'] = 12
-plt.rcParams['ytick.labelsize'] = 12
-plt.rcParams['legend.fontsize'] = 12
+# 尝试系统字体
+if not chinese_font_loaded:
+    system = platform.system()
+    if system == "Windows":
+        system_fonts = ['Microsoft YaHei', 'SimHei', 'SimSun']
+    elif system == "Darwin":
+        system_fonts = ['PingFang SC', 'STHeiti', 'STSong']
+    else:
+        system_fonts = ['WenQuanYi Zen Hei', 'Noto Sans CJK SC']
+    
+    available = set(f.name for f in fm.fontManager.ttflist)
+    
+    for font in system_fonts:
+        if font in available:
+            plt.rcParams['font.sans-serif'] = [font, 'DejaVu Sans', 'Arial']
+            chinese_font_loaded = True
+            print(f"使用系统字体: {font}")
+            break
 
-print(f"图表尺寸设置: {{max_width_inches}}x{{max_height_inches}} 英寸, DPI: {{safe_dpi}}")
-print(f"像素尺寸: {{max_pixels_width}}x{{max_pixels_height}} 像素")
+# 设置最终字体配置
+if chinese_font_loaded:
+    current_font = plt.rcParams['font.sans-serif'][0]
+    font_prop = fm.FontProperties(family=current_font)
+    
+    # 包装matplotlib函数强制使用中文字体
+    _orig_text = plt.text
+    _orig_xlabel = plt.xlabel
+    _orig_ylabel = plt.ylabel
+    _orig_title = plt.title
+    
+    def text_cn(*args, **kwargs):
+        kwargs.setdefault('fontproperties', font_prop)
+        return _orig_text(*args, **kwargs)
+        
+    def xlabel_cn(*args, **kwargs):
+        kwargs.setdefault('fontproperties', font_prop)
+        return _orig_xlabel(*args, **kwargs)
+        
+    def ylabel_cn(*args, **kwargs):
+        kwargs.setdefault('fontproperties', font_prop)
+        return _orig_ylabel(*args, **kwargs)
+        
+    def title_cn(*args, **kwargs):
+        kwargs.setdefault('fontproperties', font_prop)
+        return _orig_title(*args, **kwargs)
+    
+    plt.text = text_cn
+    plt.xlabel = xlabel_cn  
+    plt.ylabel = ylabel_cn
+    plt.title = title_cn
+    
+    print(f"字体设置完成: {current_font}")
+else:
+    plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial']
+    print("使用默认字体")
 
-# 尝试设置中文字体
-chinese_font_found = False
-system = platform.system()
+# 配置seaborn
+try:
+    import seaborn as sns
+    sns.set_style("whitegrid", {"font.sans-serif": plt.rcParams['font.sans-serif']})
+except:
+    pass
 
-if system == "Windows":
-    # Windows系统的中文字体
-    fonts_to_try = ['Microsoft YaHei', 'SimHei', 'KaiTi', 'SimSun']
-elif system == "Darwin":  # macOS
-    # macOS系统的中文字体
-    fonts_to_try = ['PingFang SC', 'STHeiti', 'STKaiti', 'STSong']
-else:  # Linux等
-    # Linux系统的中文字体
-    fonts_to_try = ['WenQuanYi Zen Hei', 'WenQuanYi Micro Hei', 'Noto Sans CJK SC']
-
-# 获取系统中可用的字体
-available_fonts = set([f.name for f in mpl.font_manager.fontManager.ttflist])
-
-# 尝试找到第一个可用的中文字体
-for font in fonts_to_try:
-    if font in available_fonts:
-        plt.rcParams['font.sans-serif'] = [font, 'DejaVu Sans', 'Arial', 'sans-serif']
-        chinese_font_found = True
-        print(f"使用中文字体: {{font}}")
-        break
-
-if not chinese_font_found:
-    # 如果没有找到中文字体，使用默认字体
-    plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial', 'sans-serif']
-    print("未找到中文字体，使用默认字体")
+print("字体设置完成")
+# ==================== 字体设置结束 ====================
 """
         
-        # 如果有成功加载的字体，添加字体设置
-        if 'current_font_name' in globals() and current_font_name:
-            font_setup_code += f"""
-plt.rcParams['font.sans-serif'] = ['{current_font_name}', 'DejaVu Sans', 'Arial', 'sans-serif']
-print(f"正在使用字体: {current_font_name}")
-"""
-        else:
-            font_setup_code += """
-plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial', 'sans-serif']
-print("使用默认字体，将启用文本替换模式")
+        # 添加最终字体设置检查
+        font_setup_code += """
+# 最终字体设置检查
+if not chinese_font_loaded:
+    plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial', 'sans-serif']
+    print("使用默认字体，将启用文本替换模式")
+else:
+    print(f"字体设置完成，当前字体: {plt.rcParams['font.sans-serif'][0]}")
 """
         
         font_setup_code += """
 plt.rcParams['axes.unicode_minus'] = False
 
-# 字体替换函数
+# 强制字体应用函数
+def apply_chinese_font_to_all():
+    \"\"\"确保所有文本元素都使用中文字体\"\"\"
+    import matplotlib.pyplot as plt
+    import matplotlib.font_manager as fm
+    
+    # 获取当前设置的中文字体
+    current_font = plt.rcParams['font.sans-serif'][0]
+    
+    # 更新所有相关的 rcParams
+    plt.rcParams.update({
+        'font.family': 'sans-serif',
+        'font.sans-serif': [current_font, 'DejaVu Sans', 'Arial', 'sans-serif'],
+        'axes.unicode_minus': False,
+        'text.usetex': False,
+        'mathtext.fontset': 'custom',
+        'mathtext.default': 'regular'
+    })
+    
+    # 返回字体属性对象用于显式指定
+    return fm.FontProperties(family=current_font)
+
+# 获取中文字体属性
+chinese_font_prop = apply_chinese_font_to_all()
+
+# 确保所有新创建的图形都使用正确的字体
+def ensure_font_in_figure():
+    \"\"\"确保当前图形中的所有文本都使用中文字体\"\"\"
+    fig = plt.gcf()
+    for text in fig.findobj(plt.Text):
+        if hasattr(text, 'set_fontproperties'):
+            text.set_fontproperties(chinese_font_prop)
+
+# 处理 seaborn 字体设置
+try:
+    import seaborn as sns
+    # 设置 seaborn 使用相同的字体
+    sns.set_style("whitegrid", {"font.sans-serif": plt.rcParams['font.sans-serif']})
+    print("已配置 seaborn 使用中文字体")
+except ImportError:
+    print("seaborn 未安装，跳过其字体配置")
+
+# 字体替换函数（在没有中文字体时使用）
 def replace_chinese_text(text):
-    if isinstance(text, str):
+    if isinstance(text, str) and not chinese_font_loaded:
         font_replace_map = {
             '美妆': 'Beauty', '销售': 'Sales', '数据': 'Data', '分析': 'Analysis',
             '产品': 'Product', '类型': 'Type', '销售额': 'Revenue', '对比': 'Compare',
             '护肤品': 'Skincare', '彩妆': 'Makeup', '香水': 'Perfume', '面膜': 'Mask',
             '洁面': 'Cleanser', '万元': '10k CNY', '占比': 'Proportion', '品类': 'Category',
-            '利润率': 'Profit Rate', '销售表现': 'Sales Performance', '分析': 'Analysis',
+            '利润率': 'Profit Rate', '销售表现': 'Sales Performance',
             '价格': 'Price', '数量': 'Quantity', '时间': 'Time', '日期': 'Date',
-            '月份': 'Month', '品牌': 'Brand', '地区': 'Region', '客户': 'Customer'
+            '月份': 'Month', '品牌': 'Brand', '地区': 'Region', '客户': 'Customer',
+            '口红': 'Lipstick', '精华': 'Serum', '面霜': 'Cream', '乳液': 'Lotion',
+            '眼影': 'Eyeshadow', '粉底': 'Foundation', '防晒': 'Sunscreen',
+            '销量': 'Sales Volume', '件': 'units', '促销活动': 'Promotion'
         }
         for chinese, english in font_replace_map.items():
             text = text.replace(chinese, english)
     return text
 
-# 重写matplotlib的中文处理
-def safe_chinese_text(text):
-    \"\"\"安全处理中文文本\"\"\"
-    return replace_chinese_text(str(text)) if text else ""
+# 包装matplotlib函数以确保使用中文字体
+import matplotlib.pyplot as plt
+
+# 保存原始函数
+_original_text = plt.text
+_original_xlabel = plt.xlabel
+_original_ylabel = plt.ylabel
+_original_title = plt.title
+
+# 重新定义函数以强制使用中文字体
+def text_with_font(*args, **kwargs):
+    kwargs.setdefault('fontproperties', chinese_font_prop)
+    return _original_text(*args, **kwargs)
+
+def xlabel_with_font(*args, **kwargs):
+    kwargs.setdefault('fontproperties', chinese_font_prop)
+    return _original_xlabel(*args, **kwargs)
+
+def ylabel_with_font(*args, **kwargs):
+    kwargs.setdefault('fontproperties', chinese_font_prop)
+    return _original_ylabel(*args, **kwargs)
+
+def title_with_font(*args, **kwargs):
+    kwargs.setdefault('fontproperties', chinese_font_prop)
+    return _original_title(*args, **kwargs)
+
+# 应用字体包装
+plt.text = text_with_font
+plt.xlabel = xlabel_with_font
+plt.ylabel = ylabel_with_font
+plt.title = title_with_font
+
+print(f"中文字体已应用到所有文本元素: {plt.rcParams['font.sans-serif'][0]}")
 """
         
         # 合并代码
@@ -1399,61 +1578,119 @@ plt.tight_layout()"""
         has_python_code = any(keyword in cleaned_response for keyword in python_keywords)
         
         if has_python_code:
+            # 获取当前可用的中文字体并注入字体设置
+            try:
+                selected_font = force_apply_chinese_font_to_all_elements()
+                if selected_font:
+                    cleaned_response = inject_font_settings_into_code(cleaned_response, selected_font)
+                    logger.info(f"已注入字体设置，使用字体: {selected_font}")
+                else:
+                    # 使用默认字体设置
+                    cleaned_response = inject_font_settings_into_code(cleaned_response, 'Noto Sans CJK JP')
+                    logger.info("使用默认字体设置")
+            except Exception as font_error:
+                logger.warning(f"注入字体设置失败: {font_error}")
+                # 即使字体注入失败，也返回原始代码
+            
             return cleaned_response
         else:
             logger.warning("响应中未检测到有效的Python代码")
             return ""
     
     def _fix_code_formatting(self, code: str) -> str:
-        """修复代码格式问题
-        
-        参数:
-            code: 原始代码
-            
-        返回:
-            修复后的代码
-        """
+        """修复代码格式问题，确保语法正确"""
         if not code:
             return code
         
-        # 如果代码是一行但包含多个语句，尝试分割
+        # 首先进行基本的清理
+        code = code.strip()
+        
+        # 修复常见的连接问题
+        # 1. 处理函数调用后直接跟其他函数调用的情况
+        patterns_to_fix = [
+            # matplotlib/seaborn 函数调用后缺少换行
+            (r'(\))([a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z_][a-zA-Z0-9_]*\()', r'\1\n\2'),
+            # set_* 方法后缺少换行
+            (r'(\))(\s*ax[0-9]*\.set_[a-zA-Z_]+\()', r'\1\n\2'),
+            # tick_params 后缺少换行
+            (r'(\))(\s*ax[0-9]*\.tick_params\()', r'\1\n\2'),
+            # plt/sns 函数后缺少换行
+            (r'(\))(plt\.[a-zA-Z_]+\()', r'\1\n\2'),
+            (r'(\))(sns\.[a-zA-Z_]+\()', r'\1\n\2'),
+            # subplot 定义后缺少换行
+            (r'(\))(ax[0-9]* = plt\.subplot\()', r'\1\n\2'),
+            # 注释和代码连在一起的情况
+            (r'(#[^\n]*?)([a-zA-Z_][a-zA-Z0-9_]* =)', r'\1\n\2'),
+            # 赋值语句被错误分割的情况
+            (r'([a-zA-Z_][a-zA-Z0-9_]*) =\n(plt\.[a-zA-Z_]+\()', r'\1 = \2'),
+            # 处理连续的方法调用
+            (r'(\))([a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z_]+\()', r'\1\n\2'),
+            # 处理数字后直接跟代码的情况
+            (r'(\d+\))([a-zA-Z_])', r'\1\n\2'),
+            # 处理注释后直接跟变量赋值
+            (r'(#.*?)([a-zA-Z_][a-zA-Z0-9_]* *=)', r'\1\n\2'),
+        ]
+        
+        for pattern, replacement in patterns_to_fix:
+            code = re.sub(pattern, replacement, code)
+        
+        # 使用更强大的行分割处理
+        code = self._ensure_proper_line_breaks(code)
+        
+        # 修复缩进问题
+        code = self._fix_indentation(code)
+        
+        return code
+    
+    def _ensure_proper_line_breaks(self, code: str) -> str:
+        """确保代码有正确的换行符，特别处理连在一起的语句"""
+        if not code:
+            return code
+        
         lines = code.split('\n')
         fixed_lines = []
         
         for line in lines:
             line = line.strip()
             if not line:
+                fixed_lines.append('')
                 continue
+                
+            # 检查是否有多个语句在同一行（通过 ')' 后跟字母来判断）
+            # 使用更精确的正则表达式来分割语句
             
-            # 检查一行中是否包含多个Python语句（没有正确换行）
-            # 查找常见的语句分隔符
-            import re
+            # 处理连续的函数调用
+            # 例如: func1(args)func2(args) -> func1(args)\nfunc2(args)
+            parts = re.split(r'(\)[a-zA-Z_][a-zA-Z0-9_]*\.)', line)
             
-            # 处理类似 "statement1ax = ..." 的情况
-            line = re.sub(r'(\)|\])([a-zA-Z_][a-zA-Z0-9_]*\s*=)', r'\1\n\2', line)
-            
-            # 处理类似 "statement1plt." 的情况
-            line = re.sub(r'(\)|\])(plt\.|sns\.|ax\.|ax2\.)', r'\1\n\2', line)
-            
-            # 处理类似 "statement1import" 的情况
-            line = re.sub(r'(\)|\])(import\s)', r'\1\n\2', line)
-            
-            # 处理缺少换行的函数调用
-            line = re.sub(r'(\))([a-zA-Z_][a-zA-Z0-9_]*\()', r'\1\n\2', line)
-            
-            # 如果修复后的行包含换行符，分割它们
-            if '\n' in line:
-                fixed_lines.extend(line.split('\n'))
+            if len(parts) > 1:
+                # 重新组合分割的部分
+                current_line = parts[0]
+                fixed_lines.append(current_line)
+                
+                for i in range(1, len(parts), 2):
+                    if i + 1 < len(parts):
+                        # parts[i] 是分割符，parts[i+1] 是后面的内容
+                        separator = parts[i][:-1]  # 去掉最后的 '.'
+                        next_part = parts[i][-1] + parts[i+1]  # 加回 '.' 和后面的内容
+                        fixed_lines.append(separator)
+                        current_line = next_part
+                
+                if current_line.strip():
+                    fixed_lines.append(current_line)
             else:
-                fixed_lines.append(line)
+                # 检查其他模式
+                # 处理 ') + 字母' 的情况
+                if re.search(r'\)[a-zA-Z_]', line):
+                    # 在 ')' 后面插入换行符
+                    line = re.sub(r'(\))([a-zA-Z_])', r'\1\n\2', line)
+                    # 按换行符分割并添加到结果中
+                    sub_lines = line.split('\n')
+                    fixed_lines.extend(sub_lines)
+                else:
+                    fixed_lines.append(line)
         
-        # 重新组合代码
-        result = '\n'.join(line for line in fixed_lines if line.strip())
-        
-        # 确保代码有适当的缩进
-        result = self._fix_indentation(result)
-        
-        return result
+        return '\n'.join(fixed_lines)
     
     def _fix_indentation(self, code: str) -> str:
         """修复代码缩进问题
@@ -1495,19 +1732,26 @@ plt.tight_layout()"""
             # 设置matplotlib后端
             plt.switch_backend('Agg')
             
+            # 确保字体设置正确
+            ensure_font_before_plot()
+            
             # 设置合理的图表尺寸，确保不超过matplotlib限制
             safe_width = 12  # 12英寸宽度
             safe_height = 8  # 8英寸高度
             safe_dpi = 150   # 150 DPI
             
             # 像素计算: 12*150=1800, 8*150=1200，都在安全范围内
-            plt.figure(figsize=(safe_width, safe_height), dpi=safe_dpi)
+            fig, ax = plt.subplots(figsize=(safe_width, safe_height), dpi=safe_dpi)
             
             logger.info(f"简单图表尺寸: {safe_width}x{safe_height}英寸, DPI: {safe_dpi}")
             logger.info(f"像素尺寸: {safe_width*safe_dpi}x{safe_height*safe_dpi}")
             
+            # 获取中文字体属性
+            import matplotlib.font_manager as fm
+            chinese_font = fm.FontProperties(family=plt.rcParams['font.sans-serif'][0])
+            
             # 简单的表格展示
-            plt.axis('off')  # 不显示坐标轴
+            ax.axis('off')  # 不显示坐标轴
             
             # 只显示前5行，最多8列
             display_df = df.iloc[:5, :8].copy()
@@ -1523,7 +1767,7 @@ plt.tight_layout()"""
             for row in range(len(display_df)):
                 cell_text.append(display_df.iloc[row].tolist())
                 
-            table = plt.table(
+            table = ax.table(
                 cellText=cell_text,
                 colLabels=display_df.columns,
                 loc='center',
@@ -1531,17 +1775,22 @@ plt.tight_layout()"""
                 colColours=['#f2f2f2'] * len(display_df.columns)
             )
             
-            # 调整表格样式
+            # 调整表格样式，应用中文字体
             table.auto_set_font_size(False)
             table.set_fontsize(9)
             table.scale(1.2, 1.5)
             
-            # 添加标题
-            plt.title('Data Preview', fontsize=14, pad=20)
+            # 为表格中的所有文本设置中文字体
+            for (i, j), cell in table.get_celld().items():
+                cell.get_text().set_fontproperties(chinese_font)
             
-            # 添加数据集信息
-            plt.figtext(0.5, 0.01, f'Dataset: {len(df)} rows × {len(df.columns)} columns', 
-                      ha='center', fontsize=10, bbox={'facecolor':'#f2f2f2', 'alpha':0.5, 'pad':5})
+            # 添加标题，使用中文字体
+            fig.suptitle('数据预览', fontsize=14, fontproperties=chinese_font, y=0.95)
+            
+            # 添加数据集信息，使用中文字体
+            fig.text(0.5, 0.02, f'数据集: {len(df)} 行 × {len(df.columns)} 列', 
+                    ha='center', fontsize=10, fontproperties=chinese_font,
+                    bbox={'facecolor':'#f2f2f2', 'alpha':0.5, 'pad':5})
             
             # 转换为Base64
             buff = io.BytesIO()
@@ -1549,9 +1798,9 @@ plt.tight_layout()"""
             # 使用合理的DPI保存
             save_dpi = 150  # 适中的DPI设置
             
-            plt.savefig(buff, format='png', dpi=save_dpi, bbox_inches='tight', 
+            fig.savefig(buff, format='png', dpi=save_dpi, bbox_inches='tight', 
                        facecolor='white', edgecolor='none')
-            plt.close()
+            plt.close(fig)
             buff.seek(0)
             
             logger.info(f"简单图表保存DPI: {save_dpi}")
@@ -1577,11 +1826,21 @@ plt.tight_layout()"""
             if len(df) == 0 or len(df.columns) == 0:
                 return None
             
-            # 确保字体设置正确
-            ensure_font_before_plot()
-            
-            # 强制使用Agg后端确保无GUI环境下也能工作
+            # 确保matplotlib backend
             plt.switch_backend('Agg')
+            
+            # 强制应用中文字体设置
+            selected_font = force_apply_chinese_font_to_all_elements()
+            if not selected_font:
+                selected_font = 'Noto Sans CJK JP'
+            
+            # 创建字体属性对象
+            import matplotlib.font_manager as fm
+            chinese_font = fm.FontProperties(family=[selected_font, 'DejaVu Sans'], size=12)
+            title_font = fm.FontProperties(family=[selected_font, 'DejaVu Sans'], size=16, weight='bold')
+            label_font = fm.FontProperties(family=[selected_font, 'DejaVu Sans'], size=12)
+            
+            logger.info(f"默认图表使用字体: {selected_font}")
             
             # 处理列名中的中文，避免乱码
             column_map = {}
@@ -1606,7 +1865,7 @@ plt.tight_layout()"""
                     
                     column_map[col] = new_col
                     translated_df = translated_df.rename(columns={col: new_col})
-            
+
             # 记录列名转换
             if column_map:
                 logger.info(f"列名转换映射: {column_map}")
@@ -1658,10 +1917,10 @@ plt.tight_layout()"""
                 plt.xticks(rotation=45, ha='right')
                 plt.tight_layout()
                 
-                # 添加标题和标签，确保不使用中文
-                plt.title(f"Bar Chart: {num_col} by {cat_col}")
-                plt.xlabel(cat_col)
-                plt.ylabel(num_col)
+                # 添加标题和标签，确保使用正确字体
+                plt.title(f"Bar Chart: {num_col} by {cat_col}", fontproperties=title_font)
+                plt.xlabel(cat_col, fontproperties=label_font)
+                plt.ylabel(num_col, fontproperties=label_font)
                 
             elif chart_type == "line":
                 # 使用第一个时间/序号列和第一个数值列
@@ -1677,10 +1936,10 @@ plt.tight_layout()"""
                 plt.xticks(rotation=45, ha='right')
                 plt.tight_layout()
                 
-                # 添加标题和标签，确保不使用中文
-                plt.title(f"Line Chart: {num_col} over {time_col}")
-                plt.xlabel(time_col)
-                plt.ylabel(num_col)
+                # 添加标题和标签，确保使用正确字体
+                plt.title(f"Line Chart: {num_col} over {time_col}", fontproperties=title_font)
+                plt.xlabel(time_col, fontproperties=label_font)
+                plt.ylabel(num_col, fontproperties=label_font)
                 
             elif chart_type == "pie":
                 # 使用第一个分类列和第一个数值列
@@ -1705,8 +1964,8 @@ plt.tight_layout()"""
                 plt.pie(plot_data, labels=plot_data.index, autopct='%1.1f%%')
                 plt.axis('equal')
                 
-                # 添加标题，确保不使用中文
-                plt.title(f"Pie Chart: Distribution of {cat_col}")
+                # 添加标题，确保使用正确字体
+                plt.title(f"Pie Chart: Distribution of {cat_col}", fontproperties=title_font)
                 
             elif chart_type == "scatter":
                 # 使用前两个数值列
@@ -1717,10 +1976,10 @@ plt.tight_layout()"""
                     # 绘制散点图
                     plt.scatter(translated_df[x_col], translated_df[y_col])
                     
-                    # 添加标题和标签，确保不使用中文
-                    plt.title(f"Scatter Plot: {y_col} vs {x_col}")
-                    plt.xlabel(x_col)
-                    plt.ylabel(y_col)
+                    # 添加标题和标签，确保使用正确字体
+                    plt.title(f"Scatter Plot: {y_col} vs {x_col}", fontproperties=title_font)
+                    plt.xlabel(x_col, fontproperties=label_font)
+                    plt.ylabel(y_col, fontproperties=label_font)
                     
                 else:
                     # 如果没有足够的数值列，尝试使用简单的表格图
@@ -1748,8 +2007,8 @@ plt.tight_layout()"""
                     sns.heatmap(cross_tab, annot=True, cmap="YlGnBu")
                     plt.tight_layout()
                     
-                    # 添加标题，确保不使用中文
-                    plt.title(f"Heatmap: {x_col} vs {y_col}")
+                    # 添加标题，确保使用正确字体
+                    plt.title(f"Heatmap: {x_col} vs {y_col}", fontproperties=title_font)
                     
                 else:
                     # 如果没有足够的分类列，尝试使用简单的表格图
@@ -1942,7 +2201,7 @@ def fix_string_formatting_errors(code_text):
         (r"str\(([^)]+?)\)\.(\d+)f", r"f'{{\1:.1f}}'"),
         
         # 修复seaborn参数问题
-        (r"palette=(['\"][^'\"]*['\"])", r"color='steelblue'"),
+        (r"palette=(['\"][^'\"]*['\"])([^)]*?)", r"color='steelblue'\2"),
         
         # 修复font size参数
         (r"font size", r"fontsize"),
@@ -1961,3 +2220,161 @@ def fix_string_formatting_errors(code_text):
         return code_text
     
     return fixed_code
+
+def force_apply_chinese_font_to_all_elements():
+    """强制对所有图表元素应用中文字体"""
+    try:
+        # 获取当前可用的中文字体
+        import matplotlib.font_manager as fm
+        
+        # 确保使用正确的字体名称
+        chinese_font_names = [
+            'Noto Sans CJK JP',  # 我们加载的字体
+            'Noto Sans CJK SC',
+            'Noto Sans CJK',
+            'Microsoft YaHei',
+            'SimHei',
+            'DejaVu Sans'
+        ]
+        
+        # 找到第一个可用的中文字体
+        available_fonts = set([f.name for f in fm.fontManager.ttflist])
+        selected_font = None
+        
+        for font_name in chinese_font_names:
+            if font_name in available_fonts:
+                selected_font = font_name
+                logger.info(f"选择字体: {font_name}")
+                break
+        
+        if not selected_font:
+            selected_font = chinese_font_names[0]  # 默认使用第一个
+            logger.warning(f"未找到匹配字体，使用默认: {selected_font}")
+        
+        # 强制设置所有matplotlib参数
+        plt.rcParams.update({
+            'font.sans-serif': [selected_font, 'DejaVu Sans', 'Arial', 'sans-serif'],
+            'font.family': ['sans-serif'],
+            'axes.unicode_minus': False,
+            'figure.titlesize': 'large',
+            'axes.titlesize': 'medium',
+            'axes.labelsize': 'medium',
+            'xtick.labelsize': 'small',
+            'ytick.labelsize': 'small',
+            'legend.fontsize': 'small'
+        })
+        
+        return selected_font
+        
+    except Exception as e:
+        logger.error(f"强制应用字体失败: {e}")
+        return None
+
+
+def inject_font_settings_into_code(code_str, font_name=None):
+    """在生成的代码中注入字体设置"""
+    if not font_name:
+        font_name = 'Noto Sans CJK JP'
+    
+    # 字体设置代码
+    font_setup_code = f'''
+# 强制设置中文字体
+import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
+plt.rcParams['font.sans-serif'] = ['{font_name}', 'DejaVu Sans', 'Arial', 'sans-serif']
+plt.rcParams['axes.unicode_minus'] = False
+plt.rcParams['font.family'] = ['sans-serif']
+
+# 定义字体属性
+chinese_font = fm.FontProperties(family=['{font_name}', 'DejaVu Sans'], size=12)
+title_font = fm.FontProperties(family=['{font_name}', 'DejaVu Sans'], size=16, weight='bold')
+label_font = fm.FontProperties(family=['{font_name}', 'DejaVu Sans'], size=12)
+'''
+    
+    # 在代码开头插入字体设置
+    lines = code_str.strip().split('\n')
+    
+    # 找到合适的插入位置（在import之后，在第一个实际绘图命令之前）
+    insert_position = 0
+    for i, line in enumerate(lines):
+        stripped_line = line.strip()
+        if stripped_line.startswith('import ') or stripped_line.startswith('from '):
+            insert_position = i + 1
+        elif stripped_line.startswith('plt.') or stripped_line.startswith('sns.') or stripped_line.startswith('ax') or stripped_line.startswith('fig'):
+            break
+    
+    # 插入字体设置代码
+    lines.insert(insert_position, font_setup_code)
+    
+    # 修改代码中的文本设置，添加fontproperties参数
+    modified_lines = []
+    for line in lines:
+        original_line = line
+        
+        # 为plt.title添加字体属性
+        if 'plt.title(' in line and 'fontproperties=' not in line:
+            line = line.replace('plt.title(', 'plt.title(').rstrip()
+            if line.endswith(')'):
+                line = line[:-1] + ', fontproperties=title_font)'
+            else:
+                line = line + ', fontproperties=title_font'
+        
+        # 为.set_title添加字体属性
+        elif '.set_title(' in line and 'fontproperties=' not in line:
+            line = line.rstrip()
+            if line.endswith(')'):
+                line = line[:-1] + ', fontproperties=title_font)'
+            else:
+                line = line + ', fontproperties=title_font'
+        
+        # 为plt.xlabel添加字体属性
+        elif 'plt.xlabel(' in line and 'fontproperties=' not in line:
+            line = line.rstrip()
+            if line.endswith(')'):
+                line = line[:-1] + ', fontproperties=label_font)'
+            else:
+                line = line + ', fontproperties=label_font'
+        
+        # 为.set_xlabel添加字体属性
+        elif '.set_xlabel(' in line and 'fontproperties=' not in line:
+            line = line.rstrip()
+            if line.endswith(')'):
+                line = line[:-1] + ', fontproperties=label_font)'
+            else:
+                line = line + ', fontproperties=label_font'
+        
+        # 为plt.ylabel添加字体属性
+        elif 'plt.ylabel(' in line and 'fontproperties=' not in line:
+            line = line.rstrip()
+            if line.endswith(')'):
+                line = line[:-1] + ', fontproperties=label_font)'
+            else:
+                line = line + ', fontproperties=label_font'
+        
+        # 为.set_ylabel添加字体属性
+        elif '.set_ylabel(' in line and 'fontproperties=' not in line:
+            line = line.rstrip()
+            if line.endswith(')'):
+                line = line[:-1] + ', fontproperties=label_font)'
+            else:
+                line = line + ', fontproperties=label_font'
+        
+        # 为.legend添加字体属性
+        elif '.legend(' in line and 'prop=' not in line:
+            line = line.rstrip()
+            if line.endswith(')'):
+                line = line[:-1] + ', prop=chinese_font)'
+            else:
+                line = line + ', prop=chinese_font'
+        
+        # 为.text添加字体属性
+        elif '.text(' in line and 'fontproperties=' not in line:
+            line = line.rstrip()
+            if line.endswith(')'):
+                line = line[:-1] + ', fontproperties=chinese_font)'
+            else:
+                line = line + ', fontproperties=chinese_font'
+        
+        modified_lines.append(line)
+    
+    return '\n'.join(modified_lines)

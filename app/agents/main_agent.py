@@ -312,6 +312,8 @@ class MainAgent:
         visualization = None
         code_output = ""
         source_agent = "router"
+        shared_context = []
+        execution_plan = ""
         
         logger.info(f"执行专家序列: {[expert['name'] for expert in expert_sequence]}")
         
@@ -442,6 +444,7 @@ class MainAgent:
         code_output = ""
         final_response = ""
         source_agent = "router"
+        execution_plan = ""
         
         # 用于存储Agent间传递的上下文信息
         shared_context = {
